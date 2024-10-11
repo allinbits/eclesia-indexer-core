@@ -17,7 +17,10 @@ export class GenesisReader {
   readGenesis = (): Parser => {
     return fs.createReadStream(this.genesisPath).pipe(parser());
   };
-  setArrayReader = (path: string, processor: (chunk: unknown) => Promise<void>): Promise<boolean> => {
+  setArrayReader = (
+    path: string,
+    processor: (chunk: unknown) => Promise<void>
+  ): Promise<boolean> => {
     const readPromise = new Promise<boolean>((resolve, reject) => {
       try {
         const filters = path.split(".");
@@ -31,14 +34,17 @@ export class GenesisReader {
             log.log(`Processed ${counter} entries`);
             resolve(true);
           });
-      } catch (e) {
+      } catch (_e) {
         reject();
       }
     });
 
     return readPromise;
   };
-  setValueReader = (path: string, processor: (chunk: unknown) => Promise<void>): Promise<boolean> => {
+  setValueReader = (
+    path: string,
+    processor: (chunk: unknown) => Promise<void>
+  ): Promise<boolean> => {
     const readPromise = new Promise<boolean>((resolve, reject) => {
       try {
         const filters = path.split(".");
@@ -53,7 +59,7 @@ export class GenesisReader {
             log.log(`Processed ${counter} entries`);
             resolve(true);
           });
-      } catch (e) {
+      } catch (_e) {
         reject();
       }
     });

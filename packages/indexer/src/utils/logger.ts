@@ -9,7 +9,7 @@ function lpad(str: string | number, padString: string, length: number) {
   return str;
 }
 
-export default class Logger {
+export class Logger {
   public log_level: number = 0;
 
   constructor(log_level = 0) {
@@ -62,32 +62,67 @@ export default class Logger {
   log(msg: string) {
     readline.clearLine(process.stdout, 0);
     readline.cursorTo(process.stdout, 0);
-    process.stdout.write(chalk.white(this.timestamp()) + " - " + chalk.magenta("[LOG]") + " " + msg + "\n");
+    process.stdout.write(
+      chalk.white(this.timestamp()) +
+        " - " +
+        chalk.magenta("[LOG]") +
+        " " +
+        msg +
+        "\n"
+    );
   }
   info(msg: string) {
     if (this.log_level > 0) {
       readline.clearLine(process.stdout, 0);
       readline.cursorTo(process.stdout, 0);
-      process.stdout.write(chalk.white(this.timestamp()) + " - " + chalk.cyan("[INFO]") + " " + msg + "\n");
+      process.stdout.write(
+        chalk.white(this.timestamp()) +
+          " - " +
+          chalk.cyan("[INFO]") +
+          " " +
+          msg +
+          "\n"
+      );
     }
   }
   warning(msg: string) {
     if (this.log_level > 0) {
       readline.clearLine(process.stdout, 0);
       readline.cursorTo(process.stdout, 0);
-      process.stdout.write(chalk.white(this.timestamp()) + " - " + chalk.yellow("[WARNING]") + " " + msg + "\n");
+      process.stdout.write(
+        chalk.white(this.timestamp()) +
+          " - " +
+          chalk.yellow("[WARNING]") +
+          " " +
+          msg +
+          "\n"
+      );
     }
   }
   error(msg: string) {
     readline.clearLine(process.stdout, 0);
     readline.cursorTo(process.stdout, 0);
-    process.stdout.write(chalk.white(this.timestamp()) + " - " + chalk.red("[ERROR]") + " " + msg + "\n");
+    process.stdout.write(
+      chalk.white(this.timestamp()) +
+        " - " +
+        chalk.red("[ERROR]") +
+        " " +
+        msg +
+        "\n"
+    );
   }
   verbose(msg: string) {
     if (this.log_level > 1) {
       readline.clearLine(process.stdout, 0);
       readline.cursorTo(process.stdout, 0);
-      process.stdout.write(chalk.white(this.timestamp()) + " - " + chalk.blue("[VERBOSE]") + " " + msg + "\n");
+      process.stdout.write(
+        chalk.white(this.timestamp()) +
+          " - " +
+          chalk.blue("[VERBOSE]") +
+          " " +
+          msg +
+          "\n"
+      );
     }
   }
   transient(msg: string) {

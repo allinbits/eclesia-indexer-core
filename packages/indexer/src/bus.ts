@@ -1,6 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
 
-//import { Events as ModuleEvents } from "./modules";
 import { UUIDEvent } from "./types";
 import { Emitter } from "./utils/emitter";
 

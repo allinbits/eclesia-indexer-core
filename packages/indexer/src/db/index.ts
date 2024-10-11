@@ -22,7 +22,7 @@ export const checkHealth = async () => {
     await client.end();
 
     return "OK";
-  } catch (e) {
+  } catch (_e) {
     return "FAILED";
   }
 };
@@ -34,20 +34,24 @@ const migrate = async () => {
   try {
     // If versions for migration support does not exist create it
     const exists = await client.query(
-      "SELECT EXISTS ( SELECT FROM pg_tables WHERE  schemaname = 'public' AND tablename  = 'migrations')",
+      "SELECT EXISTS ( SELECT FROM pg_tables WHERE  schemaname = 'public' AND tablename  = 'migrations')"
     );
     if (!exists.rows[0].exists) {
-      const moduleSql = fs.readFileSync(__dirname + "/core-migrations.sql").toString();
+      const moduleSql = fs
+        .readFileSync(__dirname + "/core-migrations.sql")
+        .toString();
       await client.query(moduleSql);
     }
   } catch (e) {
     throw new Error("Could not upgrade DB: " + e);
   }
   const latestMigrationQuery = await client.query(
-    "SELECT * FROM migrations WHERE module='core' ORDER BY dt DESC LIMIT 1",
+    "SELECT * FROM migrations WHERE module='core' ORDER BY dt DESC LIMIT 1"
   );
   const latestMigration =
-    latestMigrationQuery.rowCount && latestMigrationQuery.rowCount > 0 ? latestMigrationQuery.rows[0].dt : "0";
+    latestMigrationQuery.rowCount && latestMigrationQuery.rowCount > 0
+      ? latestMigrationQuery.rows[0].dt
+      : "0";
   const files = fs.readdirSync(__dirname + "/migrations").sort();
   for (let i = 0; i < files.length; i++) {
     if (path.extname(files[i]) == ".js") {
@@ -56,7 +60,10 @@ const migrate = async () => {
         const migrationPath = __dirname + "/migrations/" + files[i];
         const migration = await import(migrationPath);
         await migration.run(client);
-        await client.query("INSERT INTO migrations(module,dt) VALUES ($1,$2);", ["core", dt]);
+        await client.query(
+          "INSERT INTO migrations(module,dt) VALUES ($1,$2);",
+          ["core", dt]
+        );
       }
     }
   }
@@ -70,7 +77,7 @@ const setup = async () => {
   await client.connect();
 
   const exists = await client.query(
-    "SELECT EXISTS ( SELECT FROM pg_tables WHERE  schemaname = 'public' AND tablename  = 'block')",
+    "SELECT EXISTS ( SELECT FROM pg_tables WHERE  schemaname = 'public' AND tablename  = 'block')"
   );
 
   if (!exists.rows[0].exists) {

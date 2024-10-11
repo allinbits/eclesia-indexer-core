@@ -21,6 +21,7 @@ import { callABCI } from "./utils";
 const queueSize = process.env.QUEUE_SIZE
   ? parseInt(process.env.QUEUE_SIZE)
   : 500;
+// eslint-disable-next-line max-lines-per-function
 export const start = async (
   genesisPath: string,
   init: () => Promise<void>,
@@ -46,7 +47,7 @@ export const start = async (
   try {
     await tmClient;
     setStatus("ws", "OK");
-  } catch (e) {
+  } catch (_e) {
     setStatus("ws", "FAILED");
     throw new Error("Could not connect to webseocket rpc");
   }

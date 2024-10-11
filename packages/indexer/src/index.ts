@@ -1,11 +1,12 @@
 import { Command } from "commander";
 import figlet from "figlet";
-import { bus } from "./bus";
+
 import pkg from "../package.json";
+import { bus } from "./bus";
+import { health } from "./healthcheck";
 import { start } from "./indexer";
 import { LogEvent } from "./types";
-import Logger from "./utils/logger";
-import { health } from "./healthcheck";
+import { Logger } from "./utils/logger";
 
 const runIndexer = (
   init: () => Promise<void>,
@@ -17,9 +18,11 @@ const runIndexer = (
   console.log(figlet.textSync("Cosmos TS Indexer"));
 
   const logger = new Logger();
-  process.env.LOG_LEVEL
-    ? logger.setLogLevel(parseInt(process.env.LOG_LEVEL))
-    : logger.setLogLevel(1);
+  if (process.env.LOG_LEVEL) {
+    logger.setLogLevel(parseInt(process.env.LOG_LEVEL));
+  } else {
+    logger.setLogLevel(1);
+  }
 
   const logHandler = (logEvent: LogEvent) => {
     logger[logEvent.type](logEvent.message);

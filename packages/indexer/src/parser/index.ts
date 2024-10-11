@@ -11,7 +11,7 @@ export const parseGenesis = async (
   try {
     await setup();
     log.log("Base db exists");
-  } catch (e) {
+  } catch (_e) {
     log.info("Setting up db");
   }
   log.log("Initializing modules");

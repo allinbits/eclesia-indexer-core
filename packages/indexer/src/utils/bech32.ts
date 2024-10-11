@@ -10,7 +10,7 @@ function toHexString(byteArray: number[]) {
 function keyHashfromAddress(address: string): string {
   try {
     return toHexString(bech32.fromWords(bech32.decode(address).words));
-  } catch (e) {
+  } catch (_e) {
     throw new Error("Could not decode address");
   }
 }
