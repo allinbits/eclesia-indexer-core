@@ -14,9 +14,9 @@ import { beginTransaction, endTransaction, setup } from "../db";
 import { getNextHeight } from "../db/queries";
 import { setStatus } from "../healthcheck";
 import { parseGenesis } from "../parser";
+import { callABCI } from "../utils/abci";
 import { tmClient } from "../ws";
 import Queue from "./blockqueue";
-import { callABCI } from "./utils";
 
 const queueSize = process.env.QUEUE_SIZE
   ? parseInt(process.env.QUEUE_SIZE)

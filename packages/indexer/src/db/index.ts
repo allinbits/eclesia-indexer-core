@@ -4,6 +4,7 @@ import path from "node:path";
 import pg from "pg";
 
 import { log } from "../bus";
+export * from "./queries";
 
 const connectionString = process.env.PG_CONNECTION_STRING;
 

@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 
-import { UUIDEvent } from "./types";
-import { Emitter } from "./utils/emitter";
+import { UUIDEvent } from "../types";
+import { Emitter } from "../utils/emitter";
 
 export type WithHeightAndUUID<T> = {
   [K in keyof T]: T[K] & { uuid?: string; height?: number; timestamp?: string };
