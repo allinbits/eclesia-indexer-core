@@ -1,3 +1,4 @@
+import { GeneratedType } from "@cosmjs/proto-signing";
 import pg from "pg";
 
 import {
@@ -9,7 +10,10 @@ import {
   updateBlockTimeMinuteAgo,
 } from "../queries";
 
-export const run = async (db: pg.Client) => {
+export const run = async (
+  db: pg.Client,
+  _registryMap: Map<string, GeneratedType>
+) => {
   try {
     const sql = `
 CREATE TABLE average_block_time_per_minute

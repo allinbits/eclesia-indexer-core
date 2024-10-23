@@ -215,6 +215,7 @@ export const init = async (modules?: string[]) => {
       }
 
       log.verbose(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         "Value passed to genesis indexing module: " + (event as any).value
       );
 
@@ -482,7 +483,7 @@ export const init = async (modules?: string[]) => {
       await checkAndSaveValidators(event.value.validators, event.height);
     }
     // Handle auto-staking / fetch balances
-    if (event.height == 1) {
+    if (event.height == 1 && process.env.AUTOSTAKE == "1") {
       await fetchAutoStake();
     }
     const slashEvents = event.value.events.filter((x) => x.type == "slash");
@@ -526,7 +527,7 @@ export const init = async (modules?: string[]) => {
       if (event.uuid) {
         bus.emit("uuid", { status: true, uuid: event.uuid });
       }
-    } catch (e) {
+    } catch (_e) {
       if (event.uuid) {
         bus.emit("uuid", { status: false, uuid: event.uuid });
       }

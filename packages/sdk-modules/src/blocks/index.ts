@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { GeneratedType } from "@cosmjs/proto-signing";
 import { bus, DB, log, Utils } from "@eclesia/indexer";
 import { Tx } from "cosmjs-types/cosmos/tx/v1beta1/tx";
 
@@ -16,7 +17,7 @@ import {
   updateBlockTimeMinuteAgo,
 } from "./queries";
 
-const migrate = async () => {
+const migrate = async (registryMap: Map<string, GeneratedType>) => {
   const client = await DB.getInstance();
   try {
     const latestMigrationQuery = await client.query(
@@ -36,7 +37,7 @@ const migrate = async () => {
             const migrationPath = __dirname + "/migrations/" + files[i];
             const migration = await import(migrationPath);
             log.info("Running migration: (" + name + ") " + migrationPath);
-            await migration.run(client);
+            await migration.run(client, registryMap);
             await client.query(
               "INSERT INTO migrations(module,dt) VALUES ($1,$2);",
               [name, dt]
@@ -50,15 +51,19 @@ const migrate = async () => {
     throw e;
   }
 };
-const setupDB = async () => {
+const setupDB = async (registryMap: Map<string, GeneratedType>) => {
   try {
-    await migrate();
+    await migrate(registryMap);
   } catch (_e) {
     throw new Error("Could not migrate module: " + name);
   }
 };
-export const init = async () => {
-  await setupDB();
+export const init = async (registry: [string, GeneratedType][]) => {
+  const registryMap: Map<string, (typeof registry)[0][1]> = new Map();
+  for (let i = 0; i < registry.length; i++) {
+    registryMap.set(registry[i][0], registry[i][1]);
+  }
+  await setupDB(registryMap);
   bus.on("block", async (event): Promise<void> => {
     const block = event.value.block;
     const block_results = event.value.block_results;
@@ -83,7 +88,13 @@ export const init = async () => {
       const tx = Tx.decode(txraw);
       const txHash = createHash("sha256").update(txraw).digest("hex");
       if (event.height) {
-        saveTransaction(txHash, event.height, tx, block_results.results[i]);
+        saveTransaction(
+          txHash,
+          event.height,
+          tx,
+          block_results.results[i],
+          registryMap
+        );
       }
     }
     log.verbose("Value passed to blocks indexing module: " + event.value);

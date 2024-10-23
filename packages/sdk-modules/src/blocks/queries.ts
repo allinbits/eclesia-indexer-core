@@ -1,15 +1,9 @@
-import { atomoneProtoRegistry } from "@atomone/atomone-types/atomone/client";
-import { cosmosProtoRegistry } from "@atomone/atomone-types/cosmos/client";
+import { GeneratedType } from "@cosmjs/proto-signing";
 import { TxData } from "@cosmjs/tendermint-rpc/build/tendermint34";
 import { DB, Utils } from "@eclesia/indexer";
 import { Tx } from "cosmjs-types/cosmos/tx/v1beta1/tx";
 import JSONbig from "json-bigint";
 
-const registry = cosmosProtoRegistry.concat(atomoneProtoRegistry);
-const registryMap: Map<string, (typeof registry)[0][1]> = new Map();
-for (let i = 0; i < registry.length; i++) {
-  registryMap.set(registry[i][0], registry[i][1]);
-}
 const getBlockHeightTime = async (dt: Date) => {
   const db = DB.getInstance();
   const block = await db.query(
@@ -65,7 +59,8 @@ const saveTransaction = async (
   txHash: string,
   height: number,
   tx: Tx,
-  txdata: TxData
+  txdata: TxData,
+  registryMap: Map<string, GeneratedType>
 ) => {
   const db = DB.getInstance();
   await db.query({

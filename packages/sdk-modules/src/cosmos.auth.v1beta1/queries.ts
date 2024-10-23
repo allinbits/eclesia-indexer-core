@@ -16,7 +16,6 @@ const getModuleAccount = async (name: string) => {
     QueryModuleAccountByNameResponse.decode(modq).account?.value ??
       new Uint8Array()
   ).baseAccount?.address;
-
   return acc;
 };
 

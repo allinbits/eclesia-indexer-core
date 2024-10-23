@@ -89,7 +89,10 @@ CREATE TABLE validator_status
     validator_address TEXT    NOT NULL REFERENCES validator_info (operator_address),
     status            TEXT     NOT NULL,
     jailed            BOOLEAN NOT NULL,
-    height                BIGINT REFERENCES block (height)
+    height                BIGINT REFERENCES block (height),
+
+    PRIMARY KEY (validator_address, height)
 );
 CREATE INDEX validator_status_height_index ON validator_status (height);
+CREATE INDEX validator_status_height_desc_null_lasts_index ON validator_status (height DESC NULLS LAST);
 CREATE INDEX validator_status_address_index ON validator_status (validator_address);

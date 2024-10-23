@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 import fs from "node:fs";
 import path from "node:path";
 
@@ -171,6 +172,7 @@ export const init = async () => {
   await setupDB();
   bus.on("genesis/array/app_state.bank.balances", async (event) => {
     const db = DB.getInstance();
+    await DB.assertAccount(event.value.address);
     await db.query({
       name: "save-genesis-balance",
       text: "INSERT INTO balances(address,coins) VALUES ($1,$2::COIN[])",

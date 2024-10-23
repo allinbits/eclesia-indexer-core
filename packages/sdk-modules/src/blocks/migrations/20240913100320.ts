@@ -1,17 +1,12 @@
-import { atomoneProtoRegistry } from "@atomone/atomone-types/atomone/client";
-import { cosmosProtoRegistry } from "@atomone/atomone-types/cosmos/client";
+import { GeneratedType } from "@cosmjs/proto-signing";
 import { Any } from "cosmjs-types/google/protobuf/any";
 import JSONbig from "json-bigint";
 import pg from "pg";
 
-// Add additional imports here
-const registry = cosmosProtoRegistry.concat(atomoneProtoRegistry);
-
-const registryMap: Map<string, (typeof registry)[0][1]> = new Map();
-for (let i = 0; i < registry.length; i++) {
-  registryMap.set(registry[i][0], registry[i][1]);
-}
-export const run = async (db: pg.Client) => {
+export const run = async (
+  db: pg.Client,
+  registryMap: Map<string, GeneratedType>
+) => {
   try {
     const txs = await db.query("SELECT * from transaction");
     if (txs.rowCount) {

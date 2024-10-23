@@ -1,6 +1,6 @@
 {
   "name": "@eclesia/sdk-modules",
-  "version": "1.0.12",
+  "version": "1.1.3",
   "description": "Eclesia indexer base SDK modules",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
