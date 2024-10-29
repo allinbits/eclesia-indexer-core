@@ -484,7 +484,7 @@ export const init = async (modules?: string[]) => {
     }
     // Handle auto-staking / fetch balances
     if (event.height == 1 && process.env.AUTOSTAKE == "1") {
-      await fetchAutoStake();
+      await fetchAutoStake(event.value.validators);
     }
     const slashEvents = event.value.events.filter((x) => x.type == "slash");
     if (slashEvents.length > 0) {

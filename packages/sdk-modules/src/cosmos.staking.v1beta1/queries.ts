@@ -1,4 +1,3 @@
-/* eslint-disable max-lines */
 import { DB } from "@eclesia/indexer";
 import { Utils } from "@eclesia/indexer";
 import { log } from "@eclesia/indexer/dist/bus";
@@ -8,6 +7,8 @@ import { Coin } from "cosmjs-types/cosmos/base/v1beta1/coin";
 import {
   QueryDelegatorDelegationsRequest,
   QueryDelegatorDelegationsResponse,
+  QueryValidatorDelegationsRequest,
+  QueryValidatorDelegationsResponse,
 } from "cosmjs-types/cosmos/staking/v1beta1/query";
 import {
   bondStatusToJSON,
@@ -240,11 +241,67 @@ const updateDelegatorDelegations = async (
     }
   }
 };
-const fetchAutoStake = async () => {
+const fetchAutoStake = async (validators: Validator[]) => {
   const db = getInstance();
-  const accounts = await db.query(
-    "SELECT to_json(coins),address FROM balances"
-  );
+  if (validators && validators.length > 0) {
+    for (let i = 0; i < validators.length; i++) {
+      let hasMore = true;
+      let nextKey = null;
+      while (hasMore) {
+        const pagination = nextKey
+          ? { limit: 250n, key: nextKey }
+          : { limit: 250n };
+        const q = QueryValidatorDelegationsRequest.fromPartial({
+          validatorAddr: validators[i].operatorAddress,
+          pagination,
+        });
+        const vals = QueryValidatorDelegationsRequest.encode(q).finish();
+        const delegations = QueryValidatorDelegationsResponse.decode(
+          await Utils.callABCI(
+            "/cosmos.staking.v1beta1.Query/ValidatorDelegations",
+            vals,
+            1
+          )
+        );
+        if (
+          delegations.pagination?.nextKey &&
+          delegations.pagination?.nextKey.length > 0
+        ) {
+          hasMore = true;
+          nextKey = delegations.pagination.nextKey;
+        } else {
+          hasMore = false;
+        }
+        if (delegations.delegationResponses.length > 0) {
+          for (let j = 0; j < delegations.delegationResponses.length; j++) {
+            const delegation = delegations.delegationResponses[j];
+            const consensus_address = await getConsensusAddress(
+              delegation.delegation?.validatorAddress ?? "",
+              1
+            );
+
+            await db.query(
+              "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4,$5)",
+              [
+                delegation.delegation.delegatorAddress,
+                consensus_address,
+                '("' +
+                  delegation.balance?.denom +
+                  '", "' +
+                  delegation.balance?.amount +
+                  '")',
+                new BigNumber(delegation.delegation?.shares ?? 0)
+                  .dividedBy(Math.pow(10, 18))
+                  .toPrecision(),
+                1,
+              ]
+            );
+          }
+        }
+      }
+    }
+  }
+  /*
   if (accounts.rowCount && accounts.rowCount > 0) {
     for (let i = 0; i < accounts.rows.length; i++) {
       if (BigInt(accounts.rows[i].to_json[0].amount) > 25000000n) {
@@ -288,6 +345,7 @@ const fetchAutoStake = async () => {
       }
     }
   }
+  */
 };
 const delegate = async (
   delegator: string,
