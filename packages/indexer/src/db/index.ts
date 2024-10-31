@@ -53,18 +53,20 @@ const migrate = async () => {
     latestMigrationQuery.rowCount && latestMigrationQuery.rowCount > 0
       ? latestMigrationQuery.rows[0].dt
       : "0";
-  const files = fs.readdirSync(__dirname + "/migrations").sort();
-  for (let i = 0; i < files.length; i++) {
-    if (path.extname(files[i]) == ".js") {
-      const dt = path.basename(files[i], ".js");
-      if (Number(dt) > Number(latestMigration)) {
-        const migrationPath = __dirname + "/migrations/" + files[i];
-        const migration = await import(migrationPath);
-        await migration.run(client);
-        await client.query(
-          "INSERT INTO migrations(module,dt) VALUES ($1,$2);",
-          ["core", dt]
-        );
+  if (fs.existsSync(__dirname + "/migrations")) {
+    const files = fs.readdirSync(__dirname + "/migrations").sort();
+    for (let i = 0; i < files.length; i++) {
+      if (path.extname(files[i]) == ".js") {
+        const dt = path.basename(files[i], ".js");
+        if (Number(dt) > Number(latestMigration)) {
+          const migrationPath = __dirname + "/migrations/" + files[i];
+          const migration = await import(migrationPath);
+          await migration.run(client);
+          await client.query(
+            "INSERT INTO migrations(module,dt) VALUES ($1,$2);",
+            ["core", dt]
+          );
+        }
       }
     }
   }
