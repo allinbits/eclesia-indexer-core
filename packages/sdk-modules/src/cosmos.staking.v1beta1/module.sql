@@ -13,16 +13,17 @@ CREATE TABLE staking_params
     height     BIGINT
     
 );
-CREATE INDEX staking_params_height_index ON staking_params (height);
+CREATE INDEX staking_params_height_index ON staking_params (height DESC NULLS LAST);
 
 CREATE TABLE staked_balances 
 (
     delegator TEXT             REFERENCES account (address),
+    shares numeric NOT NULL,
     amount COIN NOT NULL,
     validator TEXT REFERENCES validator(consensus_address),
     height                   BIGINT REFERENCES block (height)
 );
-CREATE INDEX staked_balances_height_index ON staked_balances (height);
+CREATE INDEX staked_balances_height_index ON staked_balances (height DESC NULLS LAST);
 CREATE INDEX staked_balances_delegator_index ON staked_balances (delegator);
 CREATE INDEX staked_balances_validator_index ON staked_balances (validator);
 /* ---- POOL ---- */
@@ -35,7 +36,7 @@ CREATE TABLE staking_pool
     CONSTRAINT unique_pool UNIQUE (bonded_tokens, not_bonded_tokens)
     
 );
-CREATE INDEX staking_pool_height_index ON staking_pool (height);
+CREATE INDEX staking_pool_height_index ON staking_pool (height DESC NULLS LAST);
 
 /* ---- VALIDATORS INFO ---- */
 
@@ -63,7 +64,7 @@ CREATE TABLE validator_description
     details           TEXT,
     height                BIGINT REFERENCES block (height)
 );
-CREATE INDEX validator_description_height_index ON validator_description (height);
+CREATE INDEX validator_description_height_index ON validator_description (height DESC NULLS LAST);
 
 CREATE TABLE validator_commission
 (
@@ -72,15 +73,16 @@ CREATE TABLE validator_commission
     min_self_delegation BIGINT  NOT NULL,
     height                BIGINT REFERENCES block (height)
 );
-CREATE INDEX validator_commission_height_index ON validator_commission (height);
+CREATE INDEX validator_commission_height_index ON validator_commission (height DESC NULLS LAST);
 
 CREATE TABLE validator_voting_power
 (
     validator_address TEXT   NOT NULL REFERENCES validator_info (operator_address),
+    delegator_shares numeric NOT NULL,
     voting_power      BIGINT NOT NULL,
     height            BIGINT REFERENCES block (height)
 );
-CREATE INDEX validator_voting_power_height_index ON validator_voting_power (height);
+CREATE INDEX validator_voting_power_height_index ON validator_voting_power (height DESC NULLS LAST);
 
 CREATE INDEX validator_voting_power_address_index ON validator_voting_power (validator_address);
 
@@ -93,6 +95,6 @@ CREATE TABLE validator_status
 
     PRIMARY KEY (validator_address, height)
 );
-CREATE INDEX validator_status_height_index ON validator_status (height);
+CREATE INDEX validator_status_height_index ON validator_status (height DESC NULLS LAST);
 CREATE INDEX validator_status_height_desc_null_lasts_index ON validator_status (height DESC NULLS LAST);
 CREATE INDEX validator_status_address_index ON validator_status (validator_address);

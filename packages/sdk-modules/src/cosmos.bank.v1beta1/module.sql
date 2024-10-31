@@ -6,11 +6,11 @@ CREATE TABLE balances (
 );
 
 CREATE INDEX balances_address_index ON balances (address);
-CREATE INDEX balances_height_index ON balances (height);
+CREATE INDEX balances_height_index ON balances (height DESC NULLS LAST);
 
 CREATE TABLE supply
 (
     coins      COIN[]  NOT NULL,
     height     BIGINT REFERENCES block (height)
 );
-CREATE INDEX supply_height_index ON supply (height);
+CREATE INDEX supply_height_index ON supply (height DESC NULLS LAST);

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { DB } from "@eclesia/indexer";
 import { Utils } from "@eclesia/indexer";
 import { log } from "@eclesia/indexer/dist/bus";
