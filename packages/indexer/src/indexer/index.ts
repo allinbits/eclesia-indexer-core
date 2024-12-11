@@ -1,8 +1,10 @@
 import { toRfc3339WithNanoseconds } from "@cosmjs/tendermint-rpc";
+import { Event } from "@cosmjs/tendermint-rpc/build/comet38";
 import {
   BlockResponse,
   BlockResultsResponse,
 } from "@cosmjs/tendermint-rpc/build/tendermint34";
+import { MsgExec } from "cosmjs-types/cosmos/authz/v1beta1/tx"
 import {
   QueryValidatorsRequest,
   QueryValidatorsResponse,
@@ -14,6 +16,7 @@ import { beginTransaction, endTransaction, setup } from "../db";
 import { getNextHeight } from "../db/queries";
 import { setStatus } from "../healthcheck";
 import { parseGenesis } from "../parser";
+import { decodeAttr } from "../utils";
 import { callABCI } from "../utils/abci";
 import { tmClient } from "../ws";
 import Queue from "./blockqueue";
@@ -168,7 +171,6 @@ export const start = async (
       // Index block inside a db transaction to ensure data consistency
       await beginTransaction();
       const toProcess = await blocksToIndex.dequeue();
-
       log.verbose("Retrieved block data");
       if (!toProcess) {
         throw new Error("Could not fetch block");
@@ -248,6 +250,27 @@ export const start = async (
               height,
               timestamp,
             });
+            if (msgs[i].typeUrl=='/cosmos.authz.v1beta1.MsgExec') {
+              const authzMsgs =  MsgExec.decode(msgs[i].value).msgs;
+              if (authzMsgs) {
+                for (let r = 0; r < authzMsgs.length; r++) {
+                  log.verbose(
+                    "Indexer broadcasting msg for handling: " + authzMsgs[i].typeUrl
+                  );
+                  const authzMsgEvents = msgevents?.reduce((events, evt) => {
+                    if (evt.attributes.filter(x => decodeAttr(x.key)=='authz_msg_index' && decodeAttr(x.value)==''+r ).length>0) {
+                      events.push(evt);
+                    }
+                    return events;
+                  },[] as Event[]);
+                  await asyncEmit(authzMsgs[i].typeUrl as never, {
+                    value: { tx: authzMsgs[i].value as never, events: authzMsgEvents } as never,
+                    height,
+                    timestamp,
+                  });
+                }
+              }
+            }
           }
         }
       }
