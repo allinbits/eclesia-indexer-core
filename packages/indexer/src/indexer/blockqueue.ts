@@ -7,13 +7,18 @@
 
 export default class Queue<T> {
   private items: Array<Promise<T>>;
+
   private enqueuer!: (val: T | PromiseLike<T>) => void;
+
   private batcher!: (val: boolean) => void;
+
   public synced = false;
+
   private batchSize: number;
+
   private continuePromise: Promise<boolean>;
 
-  constructor(batchSize: number) {
+  constructor (batchSize: number) {
     const nextVal = new Promise<T>((resolve, _reject) => {
       this.enqueuer = resolve;
     });
@@ -24,7 +29,8 @@ export default class Queue<T> {
     this.batcher(true);
     this.items = [nextVal];
   }
-  enqueue(item: T | PromiseLike<T>) {
+
+  enqueue (item: T | PromiseLike<T>) {
     this.enqueuer(item);
     const nextVal = new Promise<T>((resolve, _reject) => {
       this.enqueuer = resolve;
@@ -36,7 +42,8 @@ export default class Queue<T> {
       });
     }
   }
-  dequeue() {
+
+  dequeue () {
     const item = this.items.pop();
     if (this.size() < this.batchSize) {
       this.batcher(true);
@@ -44,26 +51,32 @@ export default class Queue<T> {
 
     return item as Promise<T>;
   }
-  head() {
+
+  head () {
     return this.items[this.items.length - 1];
   }
-  tail() {
+
+  tail () {
     return this.items[0];
   }
-  continue() {
+
+  continue () {
     return this.continuePromise;
   }
-  setSynced() {
+
+  setSynced () {
     this.synced = true;
   }
-  isEmpty() {
+
+  isEmpty () {
     if (this.items.length == 0) {
       return true;
     } else {
       return false;
     }
   }
-  size() {
+
+  size () {
     return this.items.length;
   }
 }

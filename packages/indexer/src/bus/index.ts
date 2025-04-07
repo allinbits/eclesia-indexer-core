@@ -4,7 +4,9 @@ import { UUIDEvent } from "../types";
 import { Emitter } from "../utils/emitter";
 
 export type WithHeightAndUUID<T> = {
-  [K in keyof T]: T[K] & { uuid?: string; height?: number; timestamp?: string };
+  [K in keyof T]: T[K] & { uuid?: string;
+    height?: number;
+    timestamp?: string; };
 };
 type EmitFunc<K extends keyof WithHeightAndUUID<EventMap>> = (
   t: K,
@@ -16,28 +18,35 @@ const bus = new Emitter<WithHeightAndUUID<EventMap>>();
 bus.on("_unhandled", (msg) => {
   if (msg.uuid) {
     log.verbose("Unhandled event: " + msg.type);
-    bus.emit("uuid", { status: true, uuid: msg.uuid });
+    bus.emit("uuid", { status: true,
+      uuid: msg.uuid });
   }
 });
 const log = {
   log: (message: string) => {
-    bus.emit("log", { type: "log", message });
+    bus.emit("log", { type: "log",
+      message });
   },
   info: (message: string) => {
-    bus.emit("log", { type: "info", message });
+    bus.emit("log", { type: "info",
+      message });
   },
   warning: (message: string) => {
-    bus.emit("log", { type: "warning", message });
+    bus.emit("log", { type: "warning",
+      message });
   },
   error: (message: string) => {
-    bus.emit("log", { type: "error", message });
+    bus.emit("log", { type: "error",
+      message });
   },
   verbose: (message: string) => {
-    bus.emit("log", { type: "verbose", message });
+    bus.emit("log", { type: "verbose",
+      message });
   },
   transient: (message: string) => {
-    bus.emit("log", { type: "transient", message });
-  },
+    bus.emit("log", { type: "transient",
+      message });
+  }
 };
 
 const asyncEmit: EmitFunc<keyof WithHeightAndUUID<EventMap>> = async (

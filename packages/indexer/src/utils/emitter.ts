@@ -2,9 +2,10 @@ import EventEmitter from "events";
 
 export class Emitter<Events> {
   private emitter = new EventEmitter();
+
   public handled = new Map<string, number>();
 
-  constructor() {
+  constructor () {
     this.emitter.setMaxListeners(0);
   }
 
@@ -18,13 +19,17 @@ export class Emitter<Events> {
       this.emitter.emit("_unhandled", {
         type: eventName as string,
         event: eventArg,
-        uuid: eventArg.uuid,
+        uuid: eventArg.uuid
       });
     }
   }
-  on<TEventName extends keyof Events & string>(
+
+  on<TEventName extends keyof Events & string  | "_unhandled">(
     eventName: TEventName,
-    handler: (eventArg: Events[TEventName]) => void
+    handler: TEventName extends "_unhandled"
+      ? (eventArg: { type: string;
+        event: unknown; }) => void
+      : (eventArg: TEventName extends keyof Events ? Events[TEventName] : never) => void
   ) {
     const count = this.handled.get(eventName);
     if (count) {

@@ -10,9 +10,9 @@ const callABCI = async (path: string, data: Uint8Array, height?: number) => {
     ws.abciQuery({
       path,
       data,
-      height: height,
+      height: height
     }),
-    timeout,
+    timeout
   ]);
   if (abciq) {
     return abciq.value;

@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import readline from "readline";
 
-function lpad(str: string | number, padString: string, length: number) {
+function lpad (str: string | number, padString: string, length: number) {
   while (str.toString().length < length) {
     str = padString + "" + str;
   }
@@ -12,10 +12,11 @@ function lpad(str: string | number, padString: string, length: number) {
 export class Logger {
   public log_level: number = 0;
 
-  constructor(log_level = 0) {
+  constructor (log_level = 0) {
     this.log_level = log_level;
   }
-  setLogLevel(l: number) {
+
+  setLogLevel (l: number) {
     this.log_level = l;
   }
 
@@ -26,7 +27,7 @@ export class Logger {
 	2: Verbose - 1 + Verbose logging
 	3: Transient - 2 + Transient messages
 	*/
-  timestamp() {
+  timestamp () {
     const date = new Date();
     let month = "" + (date.getMonth() + 1);
     let day = "" + date.getDate();
@@ -59,7 +60,8 @@ export class Logger {
       offset
     );
   }
-  log(msg: string) {
+
+  log (msg: string) {
     readline.clearLine(process.stdout, 0);
     readline.cursorTo(process.stdout, 0);
     process.stdout.write(
@@ -71,7 +73,8 @@ export class Logger {
         "\n"
     );
   }
-  info(msg: string) {
+
+  info (msg: string) {
     if (this.log_level > 0) {
       readline.clearLine(process.stdout, 0);
       readline.cursorTo(process.stdout, 0);
@@ -85,7 +88,8 @@ export class Logger {
       );
     }
   }
-  warning(msg: string) {
+
+  warning (msg: string) {
     if (this.log_level > 0) {
       readline.clearLine(process.stdout, 0);
       readline.cursorTo(process.stdout, 0);
@@ -99,7 +103,8 @@ export class Logger {
       );
     }
   }
-  error(msg: string) {
+
+  error (msg: string) {
     readline.clearLine(process.stdout, 0);
     readline.cursorTo(process.stdout, 0);
     process.stdout.write(
@@ -111,7 +116,8 @@ export class Logger {
         "\n"
     );
   }
-  verbose(msg: string) {
+
+  verbose (msg: string) {
     if (this.log_level > 1) {
       readline.clearLine(process.stdout, 0);
       readline.cursorTo(process.stdout, 0);
@@ -125,7 +131,8 @@ export class Logger {
       );
     }
   }
-  transient(msg: string) {
+
+  transient (msg: string) {
     if (this.log_level > 2) {
       readline.clearLine(process.stdout, 0);
       readline.cursorTo(process.stdout, 0);

@@ -1,7 +1,7 @@
 import { Event } from "@cosmjs/tendermint-rpc/build/comet38/responses";
 import {
   BlockResponse,
-  BlockResultsResponse,
+  BlockResultsResponse
 } from "@cosmjs/tendermint-rpc/build/tendermint34/responses";
 import { Validator } from "cosmjs-types/cosmos/staking/v1beta1/staking";
 
@@ -24,11 +24,13 @@ export type Events = {
   };
 
   block: {
-    value: { block: BlockResponse; block_results: BlockResultsResponse };
+    value: { block: BlockResponse;
+      block_results: BlockResultsResponse; };
   };
   end_block: { value: BlockResultsResponse["endBlockEvents"] };
   tx_events: { value: BlockResultsResponse["results"] };
-  _unhandled: { type: string; event: unknown };
+  _unhandled: { type: string;
+    event: unknown; };
   "periodic/50": { value: null };
   "periodic/100": { value: null };
   "periodic/1000": { value: null };

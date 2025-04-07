@@ -11,12 +11,14 @@ import { log } from "../bus";
 export class GenesisReader {
   genesisPath: string;
 
-  constructor(genesisPath: string) {
+  constructor (genesisPath: string) {
     this.genesisPath = genesisPath;
   }
+
   readGenesis = (): Parser => {
     return fs.createReadStream(this.genesisPath).pipe(parser());
   };
+
   setArrayReader = (
     path: string,
     processor: (chunk: unknown) => Promise<void>
@@ -41,6 +43,7 @@ export class GenesisReader {
 
     return readPromise;
   };
+
   setValueReader = (
     path: string,
     processor: (chunk: unknown) => Promise<void>

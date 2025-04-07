@@ -7,7 +7,7 @@ const connectionString = process.env.PG_CONNECTION_STRING;
 const assertAccount = async (address: string) => {
   const db = getInstance();
   const res = await db.query("SELECT address from account WHERE address=$1", [
-    address,
+    address
   ]);
   if (res.rowCount == 0) {
     await db.query("INSERT INTO account(address) values($1)", [address]);
@@ -39,7 +39,7 @@ const getUnbondingHeight = async (
 ): Promise<bigint> => {
   const db = getInstance();
   const timestamp = await db.query("SELECT * FROM block WHERE height=$1", [
-    height,
+    height
   ]);
   if (timestamp.rowCount && timestamp.rowCount > 0) {
     const date = new Date(timestamp.rows[0].timestamp);

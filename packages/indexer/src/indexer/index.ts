@@ -2,12 +2,12 @@ import { toRfc3339WithNanoseconds } from "@cosmjs/tendermint-rpc";
 import { Event } from "@cosmjs/tendermint-rpc/build/comet38";
 import {
   BlockResponse,
-  BlockResultsResponse,
-} from "@cosmjs/tendermint-rpc/build/tendermint34";
-import { MsgExec } from "cosmjs-types/cosmos/authz/v1beta1/tx"
+  BlockResultsResponse
+} from "@cosmjs/tendermint-rpc";
+import { MsgExec } from "cosmjs-types/cosmos/authz/v1beta1/tx";
 import {
   QueryValidatorsRequest,
-  QueryValidatorsResponse,
+  QueryValidatorsResponse
 } from "cosmjs-types/cosmos/staking/v1beta1/query";
 import { Tx } from "cosmjs-types/cosmos/tx/v1beta1/tx";
 
@@ -24,12 +24,19 @@ import Queue from "./blockqueue";
 const queueSize = process.env.QUEUE_SIZE
   ? parseInt(process.env.QUEUE_SIZE)
   : 500;
+
+const blocksToIndex = new Queue<
+  [BlockResponse, BlockResultsResponse, Uint8Array]
+>(queueSize);
+
+
 // eslint-disable-next-line max-lines-per-function
 export const start = async (
   genesisPath: string,
   init: () => Promise<void>,
   modules: string[]
 ) => {
+
   /*
   First we try to configure the database.
   If the database does not exist, setup() will first create the base tables and we will then attempt to parse the genesis file.
@@ -69,9 +76,7 @@ export const start = async (
   let latestHeight = status.syncInfo.latestBlockHeight;
 
   log.info("Current chain height: " + latestHeight);
-  const blocksToIndex = new Queue<
-    [BlockResponse, BlockResultsResponse, Uint8Array]
-  >(queueSize);
+  
   const heightToProcess = await getNextHeight();
 
   log.info("Next height to process: " + heightToProcess);
@@ -88,7 +93,7 @@ export const start = async (
           Promise.all([
             ws.block(height) as Promise<BlockResponse>,
             ws.blockResults(height) as Promise<BlockResultsResponse>,
-            callABCI("/cosmos.staking.v1beta1.Query/Validators", vals, height),
+            callABCI("/cosmos.staking.v1beta1.Query/Validators", vals, height)
           ])
         );
       } catch (e) {
@@ -118,7 +123,7 @@ export const start = async (
     ws.subscribeNewBlock().addListener({
       next: (data) => {
         newBlockReceived(data.header.height);
-      },
+      }
     });
   }
 
@@ -134,9 +139,9 @@ export const start = async (
       const vals = QueryValidatorsRequest.encode(q).finish();
       try {
         const toIndex = Promise.all([
-          ws.block(i),
-          ws.blockResults(i),
-          callABCI("/cosmos.staking.v1beta1.Query/Validators", vals, i),
+          ws.block(i) as Promise<BlockResponse>,
+          ws.blockResults(i) as Promise<BlockResultsResponse>,
+          callABCI("/cosmos.staking.v1beta1.Query/Validators", vals, i)
         ]);
 
         blocksToIndex.enqueue(toIndex);
@@ -196,17 +201,19 @@ export const start = async (
       // Emit block information to any interested modules.
       // Primarily the required block module listens to this
       await asyncEmit("block", {
-        value: { block, block_results },
+        value: { block,
+          block_results },
         height,
-        timestamp,
+        timestamp
       });
       log.verbose("Modules handled block event");
 
       // Deal with begin_block events first
       await asyncEmit("begin_block", {
-        value: { events: block_results.beginBlockEvents, validators },
+        value: { events: block_results.beginBlockEvents,
+          validators },
         height,
-        timestamp,
+        timestamp
       });
 
       log.verbose("Modules handled begin_block events");
@@ -215,7 +222,7 @@ export const start = async (
       await asyncEmit("tx_events", {
         value: block_results.results,
         height,
-        timestamp,
+        timestamp
       });
       log.verbose("Modules handled tx events");
 
@@ -231,7 +238,8 @@ export const start = async (
         }
 
         // parsing log rather than using events directly in order to have msg_index available to filter appropriate events for each msg
-        const events: Array<{ msg_index?: number; events: Event[] }> = txlog
+        const events: Array<{ msg_index?: number;
+          events: Event[]; }> = txlog
           ? JSON.parse(txlog)
           : [];
         const msgs = tx.body?.messages;
@@ -246,11 +254,12 @@ export const start = async (
                 ? events.find((x) => x.msg_index == i)?.events
                 : events[0].events;
             await asyncEmit(msgs[i].typeUrl as never, {
-              value: { tx: msgs[i].value as never, events: msgevents } as never,
+              value: { tx: msgs[i].value as never,
+                events: msgevents } as never,
               height,
-              timestamp,
+              timestamp
             });
-            if (msgs[i].typeUrl=='/cosmos.authz.v1beta1.MsgExec') {
+            if (msgs[i].typeUrl == "/cosmos.authz.v1beta1.MsgExec") {
               const authzMsgs =  MsgExec.decode(msgs[i].value).msgs;
               if (authzMsgs) {
                 for (let r = 0; r < authzMsgs.length; r++) {
@@ -258,15 +267,16 @@ export const start = async (
                     "Indexer broadcasting msg for handling: " + authzMsgs[i].typeUrl
                   );
                   const authzMsgEvents = msgevents?.reduce((events, evt) => {
-                    if (evt.attributes.filter(x => decodeAttr(x.key)=='authz_msg_index' && decodeAttr(x.value)==''+r ).length>0) {
+                    if (evt.attributes.filter(x => decodeAttr(x.key) == "authz_msg_index" && decodeAttr(x.value) == "" + r ).length > 0) {
                       events.push(evt);
                     }
                     return events;
-                  },[] as Event[]);
+                  }, [] as Event[]);
                   await asyncEmit(authzMsgs[i].typeUrl as never, {
-                    value: { tx: authzMsgs[i].value as never, events: authzMsgEvents } as never,
+                    value: { tx: authzMsgs[i].value as never,
+                      events: authzMsgEvents } as never,
                     height,
-                    timestamp,
+                    timestamp
                   });
                 }
               }
@@ -280,7 +290,7 @@ export const start = async (
       await asyncEmit("end_block", {
         value: block_results.endBlockEvents,
         height,
-        timestamp,
+        timestamp
       });
       log.verbose("Modules handled end_block events");
 
@@ -292,13 +302,19 @@ export const start = async (
         ms = newms;
         const rate = 1000000000 / duration;
         log.log("Processing:" + rate.toFixed(2) + "blocks/sec");
-        await asyncEmit("periodic/1000", { value: null, height, timestamp });
+        await asyncEmit("periodic/1000", { value: null,
+          height,
+          timestamp });
       }
       if (height % 100 == 0) {
-        await asyncEmit("periodic/100", { value: null, height, timestamp });
+        await asyncEmit("periodic/100", { value: null,
+          height,
+          timestamp });
       }
       if (height % 50 == 0) {
-        await asyncEmit("periodic/50", { value: null, height, timestamp });
+        await asyncEmit("periodic/50", { value: null,
+          height,
+          timestamp });
       }
       log.verbose("Handled periodic events");
 

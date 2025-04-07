@@ -3,20 +3,20 @@ import Fastify from "fastify";
 import { checkHealth } from "../db";
 
 const fastify = Fastify({
-  logger: false,
+  logger: false
 });
 const healthCheck = {
   status: "OK",
   dependencies: [
     {
       name: "db",
-      status: "CONNECTING",
+      status: "CONNECTING"
     },
     {
       name: "ws",
-      status: "CONNECTING",
-    },
-  ],
+      status: "CONNECTING"
+    }
+  ]
 };
 export const setStatus = (name: string, status: string) => {
   healthCheck.dependencies[
@@ -38,7 +38,8 @@ fastify.get("/health", async (_request, reply) => {
   reply.code(code).send(healthCheck);
 });
 export const health = () => {
-  fastify.listen({ port: 80, host: "0.0.0.0" }, (err) => {
+  fastify.listen({ port: 80,
+    host: "0.0.0.0" }, (err) => {
     if (err) {
       fastify.log.error(err);
       process.exit(1);
