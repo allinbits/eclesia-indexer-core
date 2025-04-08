@@ -50,6 +50,4 @@ describe("callABCI", () => {
     ).rejects.toThrow("ws not responding");
     expect(setStatus).toHaveBeenCalledWith("ws", "FAILED");
   });
-}, {
-  timeout: 6000 // Increase timeout for the test suite
-});
+},  6000);
