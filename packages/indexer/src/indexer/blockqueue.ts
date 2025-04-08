@@ -30,13 +30,14 @@ export default class Queue<T> {
     this.items = [nextVal];
   }
 
-  enqueue (item: T | PromiseLike<T>) {
+  enqueue (item: T | PromiseLike<T>) {    
     this.enqueuer(item);
     const nextVal = new Promise<T>((resolve, _reject) => {
       this.enqueuer = resolve;
     });
     this.items.unshift(nextVal);
-    if (this.size() >= this.batchSize) {
+    console.log(this.items);
+    if (this.size() > this.batchSize) {
       this.continuePromise = new Promise<boolean>((resolve, _reject) => {
         this.batcher = resolve;
       });
@@ -45,19 +46,11 @@ export default class Queue<T> {
 
   dequeue () {
     const item = this.items.pop();
-    if (this.size() < this.batchSize) {
+    if (this.size() <= this.batchSize) {
       this.batcher(true);
     }
 
     return item as Promise<T>;
-  }
-
-  head () {
-    return this.items[this.items.length - 1];
-  }
-
-  tail () {
-    return this.items[0];
   }
 
   continue () {

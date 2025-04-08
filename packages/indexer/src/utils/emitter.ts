@@ -28,7 +28,8 @@ export class Emitter<Events> {
     eventName: TEventName,
     handler: TEventName extends "_unhandled"
       ? (eventArg: { type: string;
-        event: unknown; }) => void
+        event: unknown;
+        uuid: string; }) => void
       : (eventArg: TEventName extends keyof Events ? Events[TEventName] : never) => void
   ) {
     const count = this.handled.get(eventName);
