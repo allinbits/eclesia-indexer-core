@@ -36,7 +36,6 @@ export default class Queue<T> {
       this.enqueuer = resolve;
     });
     this.items.unshift(nextVal);
-    console.log(this.items);
     if (this.size() > this.batchSize) {
       this.continuePromise = new Promise<boolean>((resolve, _reject) => {
         this.batcher = resolve;
