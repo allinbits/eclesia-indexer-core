@@ -40,7 +40,7 @@ fastify.get("/health", async (_request, reply) => {
 export const health = () => {
   fastify.listen({ port: 80, host: "0.0.0.0" }, (err) => {
     if (err) {
-      fastify.log.error(err);
+      console.error(err);
       process.exit(1);
     }
   });

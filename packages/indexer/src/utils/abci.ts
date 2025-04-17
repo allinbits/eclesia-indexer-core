@@ -1,8 +1,8 @@
 import { setStatus } from "../healthcheck";
-import { tmClient } from "../ws";
+import { getClient } from "../ws";
 
 const callABCI = async (path: string, data: Uint8Array, height?: number) => {
-  const ws = await tmClient;
+  const ws = await getClient();
   const timeout: Promise<void> = new Promise((resolve) => {
     setTimeout(resolve, 30000);
   });
