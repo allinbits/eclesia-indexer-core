@@ -1,6 +1,6 @@
 {
   "name": "@clockwork-projects/core-modules-pg",
-  "version": "2.1.4",
+  "version": "2.2.6",
   "description": "Eclesia postgres indexer core modules",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -20,13 +20,14 @@
   ],
   "license": "Apache-2.0",
   "devDependencies": {
-    "@clockwork-projects/indexer-engine": "workspace:*",
     "@clockwork-projects/basic-pg-indexer": "workspace:*",
+    "@clockwork-projects/indexer-engine": "workspace:*",
     "@eslint/js": "^9.24.0",
     "@stylistic/eslint-plugin-ts": "^4.2.0",
     "@types/json-bigint": "^1.0.4",
     "@types/node": "^22.14.0",
     "@types/pg": "^8.11.10",
+    "bignumber.js": "^9.1.2",
     "copyfiles": "^2.4.1",
     "eslint": "^9.24.0",
     "eslint-plugin-simple-import-sort": "^12.1.1",

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { PgIndexer } from "@clockwork-projects/basic-pg-indexer";
 import { EcleciaIndexer, Types } from "@clockwork-projects/indexer-engine";
 import { GeneratedType } from "@cosmjs/proto-signing";
+import JSONbig from "json-bigint";
 
 export class MinimalBlocksModule implements Types.IndexingModule {
   indexer!: EcleciaIndexer;
@@ -23,7 +24,7 @@ export class MinimalBlocksModule implements Types.IndexingModule {
 
   async setup() {
 
-    this.pgIndexer.beginTransaction();
+    await this.pgIndexer.beginTransaction();
     const client = this.pgIndexer.getInstance();          
     const exists = await client.query(
       "SELECT EXISTS ( SELECT FROM pg_tables WHERE  schemaname = 'public' AND tablename  = 'blocks')"
@@ -39,6 +40,8 @@ export class MinimalBlocksModule implements Types.IndexingModule {
         this.pgIndexer.endTransaction(false);
         throw new Error("" + e);
       } 
+    } else {
+      this.pgIndexer.endTransaction(true);
     }
   }
 
@@ -62,7 +65,7 @@ export class MinimalBlocksModule implements Types.IndexingModule {
           block.block.header.time
         ]
       });
-      this.indexer.log.verbose("Value passed to blocks indexing module: " + event.value);
+      this.indexer.log.silly("Value passed to blocks indexing module: " + JSONbig.stringify(event.value));
     
     });
   }

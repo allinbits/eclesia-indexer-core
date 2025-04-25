@@ -5,3 +5,18 @@ CREATE TABLE blocks
     timestamp        TIMESTAMP WITHOUT TIME ZONE NOT NULL
 );
 CREATE INDEX block_height_index ON blocks (height);
+CREATE TYPE COIN AS
+(
+    denom  TEXT,
+    amount TEXT
+);
+CREATE OR REPLACE FUNCTION unnest_2d_1d(ANYARRAY, OUT a ANYARRAY)
+  RETURNS SETOF ANYARRAY
+  LANGUAGE plpgsql IMMUTABLE STRICT AS
+$func$
+BEGIN
+   FOREACH a SLICE 1 IN ARRAY $1 LOOP
+      RETURN NEXT;
+   END LOOP;
+END
+$func$;

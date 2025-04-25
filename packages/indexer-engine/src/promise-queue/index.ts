@@ -31,15 +31,19 @@ export class PromiseQueue<T> {
   }
 
   enqueue(item: T | PromiseLike<T>) {    
-    this.enqueuer(item);
-    const nextVal = new Promise<T>((resolve, _reject) => {
-      this.enqueuer = resolve;
-    });
-    this.items.unshift(nextVal);
-    if (this.size() > this.batchSize) {
-      this.continuePromise = new Promise<boolean>((resolve, _reject) => {
-        this.batcher = resolve;
+    try {
+      this.enqueuer(item);
+      const nextVal = new Promise<T>((resolve, _reject) => {
+        this.enqueuer = resolve;
       });
+      this.items.unshift(nextVal);
+      if (this.size() > this.batchSize) {
+        this.continuePromise = new Promise<boolean>((resolve, _reject) => {
+          this.batcher = resolve;
+        });
+      }
+    } catch (e) {
+      console.error("Enqueing rejected data: " + e);
     }
   }
 

@@ -71,3 +71,4 @@ CREATE TYPE COIN AS
     denom  TEXT,
     amount TEXT
 );
+

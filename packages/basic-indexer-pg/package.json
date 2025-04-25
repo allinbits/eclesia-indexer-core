@@ -1,6 +1,6 @@
 {
   "name": "@clockwork-projects/basic-pg-indexer",
-  "version": "2.1.3",
+  "version": "2.2.2",
   "description": "Basic PostGres eclesia indexer",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

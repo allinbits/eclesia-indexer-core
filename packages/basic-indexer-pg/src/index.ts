@@ -9,8 +9,10 @@ export type PgIndexerConfig = {
   rpcUrl: string;   
   logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly";
   usePolling: boolean;
+  processGenesis?: boolean;
   pollingInterval: number;
   minimal: boolean;
+  genesisPath?: string;
   dbConnectionString: string;
 };
 
@@ -18,7 +20,7 @@ export class PgIndexer {
 
   private db: Client;
 
-  private modules: IndexingModule[] = [];
+  public modules: Record<string, IndexingModule> = {};
 
   private config: PgIndexerConfig;
 
@@ -34,7 +36,6 @@ export class PgIndexer {
 
   constructor(config: PgIndexerConfig, modules: IndexingModule[] = []) {
     this.config = config;
-    this.modules = modules;
 
     this.db = new Client(config.dbConnectionString);
     this.db.on("end", () => {
@@ -45,19 +46,24 @@ export class PgIndexer {
       getNextHeight: this.getNextHeight.bind(this),
       beginTransaction: this.beginTransaction.bind(this),
       endTransaction: this.endTransaction.bind(this) });
+    this.indexer.log.info("Indexer instantiated");
     this.db.on("error", (err) => {
       this.indexer.log.error("Error in db: " + err);
     });
-
-    for (let i = 0; i < this.modules.length; i++) {
-      this.modules[i].init(this);
+    for (let i = 0; i < modules.length; i++) {      
+      this.indexer.log.verbose("Module " + modules[i].name + " initializing");
+      modules[i].init(this);
+      this.indexer.log.info("Module " + modules[i].name + " initialized");
+      this.modules[modules[i].name] = modules[i];
     }
   }
 
-  public addModules(modules: IndexingModule[]) {
-    this.modules = modules;
-    for (let i = 0; i < this.modules.length; i++) {
-      this.modules[i].init();
+  public addModules(modules: IndexingModule[]) {        
+    for (let i = 0; i < modules.length; i++) {      
+      this.indexer.log.verbose("Module " + modules[i].name + " initializing");
+      modules[i].init(this);
+      this.indexer.log.info("Module " + modules[i].name + " initialized");
+      this.modules[modules[i].name] = modules[i];
     }
   }
 
@@ -68,8 +74,10 @@ export class PgIndexer {
 
   async setup() {
     await this.indexer.connect();
-    for (let i = 0; i < this.modules.length; i++) {
-      await this.modules[i].setup();
+    this.indexer.log.info("Connected to RPC");
+    for (const indexingModule in this.modules) {
+      this.indexer.log.verbose("Module " + indexingModule + " setting up");
+      await this.modules[indexingModule].setup();
     }
   }
 
@@ -94,6 +102,7 @@ export class PgIndexer {
         this.instanceConnected = true;
       }
       await this.db.query("BEGIN");
+      this.indexer.log.silly("Transaction started");
     } catch (e) {
       this.indexer.log.error("Error beginning transaction: " + e);
       throw e;
@@ -104,8 +113,10 @@ export class PgIndexer {
     try {
       if (status) {
         await this.db.query("COMMIT");
+        this.indexer.log.silly("Transaction committed");
       } else {
         await this.db.query("ROLLBACK");
+        this.indexer.log.silly("Transaction rolled back");
       }
     } catch (e) {
       this.indexer.log.error("Error ending transaction: " + e);

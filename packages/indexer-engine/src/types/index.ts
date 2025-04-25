@@ -14,6 +14,7 @@ export type EcleciaIndexerConfig = {
   getNextHeight: () => number | PromiseLike<number>;
   logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly";
   rpcUrl: string;
+  processGenesis?: boolean;
   genesisPath?: string;
   usePolling?: boolean;
   pollingInterval?: number;

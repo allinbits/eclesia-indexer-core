@@ -19,7 +19,7 @@ export class FullBlocksModule implements Types.IndexingModule {
 
   private registry: [string, GeneratedType][];
 
-  public name: string = "blocks-minimal";
+  public name: string = "blocks-full";
 
   public depends: string[] = [];
 
@@ -31,7 +31,7 @@ export class FullBlocksModule implements Types.IndexingModule {
 
   async setup() {
 
-    this.pgIndexer.beginTransaction();
+    await this.pgIndexer.beginTransaction();
     const client = this.pgIndexer.getInstance();          
     const exists = await client.query(
       "SELECT EXISTS ( SELECT FROM pg_tables WHERE  schemaname = 'public' AND tablename  = 'blocks')"
@@ -42,11 +42,13 @@ export class FullBlocksModule implements Types.IndexingModule {
       try {
         await client.query(base);
         this.indexer.log.info("DB has been set up");
-        this.pgIndexer.endTransaction(true);
+        await this.pgIndexer.endTransaction(true);
       } catch (e) {
-        this.pgIndexer.endTransaction(false);
+        await this.pgIndexer.endTransaction(false);
         throw new Error("" + e);
       } 
+    } else {
+      await this.pgIndexer.endTransaction(true);
     }
   }
 
@@ -86,7 +88,7 @@ export class FullBlocksModule implements Types.IndexingModule {
           await this.saveTransaction(txHash, event.height, tx, block_results.results[i], registryMap);
         }
       }
-      this.indexer.log.verbose("Value passed to blocks indexing module: " + event.value);
+      this.indexer.log.silly("Value passed to blocks indexing module: " + JSONbig.stringify(event.value));
     
     });
 
@@ -121,7 +123,7 @@ export class FullBlocksModule implements Types.IndexingModule {
   async getBlockHeightTime(dt: Date) {
     const db = this.pgIndexer.getInstance();
     const block = await db.query(
-      "SELECT * FROM blocks WHERE block.timestamp <= $1 ORDER BY blocks.timestamp DESC LIMIT 1;", [dt]
+      "SELECT * FROM blocks WHERE blocks.timestamp <= $1 ORDER BY blocks.timestamp DESC LIMIT 1;", [dt]
     );
     if (block.rowCount && block.rowCount > 0) {
       return block.rows[0];
