@@ -144,7 +144,7 @@ export const start = async (
         }
         log.verbose("Fetching: " + i);
 
-        const q = QueryValidatorsRequest.fromPartial({});
+        const q = QueryValidatorsRequest.fromPartial({ pagination: { limit: 1000n } });
         const vals = QueryValidatorsRequest.encode(q).finish();
         try {
           const toIndex = Promise.all([

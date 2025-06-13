@@ -89,7 +89,7 @@ const saveTransaction = async (
       JSON.stringify(Utils.toPlainObject(tx.authInfo?.fee)),
       txdata.gasWanted,
       txdata.gasUsed,
-      txdata.log,
+      txdata.log?.replace(/\u0000/g, ""),
       JSON.stringify(Utils.toPlainObject(txdata.events)),
     ],
   });
