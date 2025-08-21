@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 
-import { PgIndexer } from "@clockwork-projects/basic-pg-indexer";
-import { EcleciaIndexer, Types } from "@clockwork-projects/indexer-engine";
-import { Utils } from "@clockwork-projects/indexer-engine";
 import { GeneratedType } from "@cosmjs/proto-signing";
 import { TxData } from "@cosmjs/tendermint-rpc";
+import { PgIndexer } from "@eclesia/basic-pg-indexer";
+import { EcleciaIndexer, Types } from "@eclesia/indexer-engine";
+import { Utils } from "@eclesia/indexer-engine";
 import { Tx } from "cosmjs-types/cosmos/tx/v1beta1/tx";
 import JSONbig from "json-bigint";
 
@@ -211,7 +211,8 @@ export class FullBlocksModule implements Types.IndexingModule {
         JSON.stringify(Utils.toPlainObject(tx.authInfo?.fee)),
         txdata.gasWanted,
         txdata.gasUsed,
-        txdata.log,
+        // eslint-disable-next-line no-control-regex
+        txdata.log?.replace(/\u0000/g, ""),
         JSON.stringify(Utils.toPlainObject(txdata.events))
       ]
     });

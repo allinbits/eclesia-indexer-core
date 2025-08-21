@@ -483,7 +483,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
           this.blockQueue.enqueue(toIndex);
         } else {
-          const q = QueryValidatorsRequest.fromPartial({});
+          const q = QueryValidatorsRequest.fromPartial({ pagination: { limit: 1000n } });
           const vals = QueryValidatorsRequest.encode(q).finish();
           const toIndex = Promise.all([
             this.client.block(i) as Promise<BlockResponse>,
@@ -546,7 +546,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
           }) as Promise<[BlockResponse, BlockResultsResponse]>
           );
         } else {
-          const q = QueryValidatorsRequest.fromPartial({});
+          const q = QueryValidatorsRequest.fromPartial({ pagination: { limit: 1000n } });
           const vals = QueryValidatorsRequest.encode(q).finish();
           this.blockQueue.enqueue(Promise.all([
             this.client.block(height) as Promise<BlockResponse>,

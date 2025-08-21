@@ -1,11 +1,11 @@
 import fs from "node:fs";
 
-import { PgIndexer } from "@clockwork-projects/basic-pg-indexer";
-import { EcleciaIndexer, Types } from "@clockwork-projects/indexer-engine";
-import { Utils } from "@clockwork-projects/indexer-engine";
 import { parseCoins } from "@cosmjs/proto-signing";
 import { GeneratedType } from "@cosmjs/proto-signing";
 import { BlockResultsResponse } from "@cosmjs/tendermint-rpc/build/tendermint34";
+import { PgIndexer } from "@eclesia/basic-pg-indexer";
+import { EcleciaIndexer, Types } from "@eclesia/indexer-engine";
+import { Utils } from "@eclesia/indexer-engine";
 import { Balance } from "cosmjs-types/cosmos/bank/v1beta1/genesis";
 import {
   QueryAllBalancesRequest,

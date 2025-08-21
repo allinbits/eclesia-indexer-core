@@ -1,4 +1,4 @@
-import { Types } from "@clockwork-projects/indexer-engine";
+import { Types } from "@eclesia/indexer-engine";
 
 import * as Auth from "./cosmos.auth.v1beta1";
 import * as Bank from "./cosmos.bank.v1beta1";

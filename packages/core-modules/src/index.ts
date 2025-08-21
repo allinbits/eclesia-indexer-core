@@ -1,4 +1,4 @@
-import { IndexingModule } from "@clockwork-projects/indexer-engine/dist/types";
+import { IndexingModule } from "@eclesia/indexer-engine/dist/types";
 
 import { AuthModule } from "./cosmos.auth.v1beta1";
 import { BankModule } from "./cosmos.bank.v1beta1";

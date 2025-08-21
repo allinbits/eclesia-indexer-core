@@ -1,8 +1,8 @@
 import fs from "node:fs";
 
-import { PgIndexer } from "@clockwork-projects/basic-pg-indexer";
-import { EcleciaIndexer, Types } from "@clockwork-projects/indexer-engine";
 import { GeneratedType } from "@cosmjs/proto-signing";
+import { PgIndexer } from "@eclesia/basic-pg-indexer";
+import { EcleciaIndexer, Types } from "@eclesia/indexer-engine";
 import JSONbig from "json-bigint";
 
 export class MinimalBlocksModule implements Types.IndexingModule {

@@ -1,5 +1,5 @@
-import { EcleciaIndexer } from "@clockwork-projects/indexer-engine";
-import { IndexingModule } from "@clockwork-projects/indexer-engine/dist/types";
+import { EcleciaIndexer } from "@eclesia/indexer-engine";
+import { IndexingModule } from "@eclesia/indexer-engine/dist/types";
 import { Client } from "pg";
 
 export type PgIndexerConfig = {

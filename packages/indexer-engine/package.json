@@ -1,6 +1,6 @@
 {
-  "name": "@clockwork-projects/indexer-engine",
-  "version": "2.2.11",
+  "name": "@eclesia/indexer-engine",
+  "version": "2.3.1",
   "description": "Core eclesia indexer engine",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -3,10 +3,10 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 
-import { PgIndexer } from "@clockwork-projects/basic-pg-indexer";
-import { EcleciaIndexer, Types } from "@clockwork-projects/indexer-engine";
-import { Utils } from "@clockwork-projects/indexer-engine";
 import { GeneratedType } from "@cosmjs/proto-signing";
+import { PgIndexer } from "@eclesia/basic-pg-indexer";
+import { EcleciaIndexer, Types } from "@eclesia/indexer-engine";
+import { Utils } from "@eclesia/indexer-engine";
 import BigNumber from "bignumber.js";
 import { Coin } from "cosmjs-types/cosmos/base/v1beta1/coin";
 import { PubKey as EdPubKey } from "cosmjs-types/cosmos/crypto/ed25519/keys";
@@ -113,6 +113,8 @@ export class StakingModule implements Types.IndexingModule {
     }
 
     await this.cacheValidatorData(); 
+    await this.cacheLatestValidatorStatuses();
+
   }
 
   async init(pgIndexer: PgIndexer): Promise<void> {
@@ -826,6 +828,24 @@ export class StakingModule implements Types.IndexingModule {
     }
   }
 
+  async cacheLatestValidatorStatuses() {
+    const db = this.pgIndexer.getInstance();
+    const res = await db.query(
+      "SELECT DISTINCT ON(validator_address) validator_address, jailed, status, height FROM validator_status ORDER BY validator_address, height DESC NULLS LAST"
+    );
+    if (res.rowCount) {
+      for (let i = 0; i < res.rowCount; i++) {
+        const row = res.rows[i];
+        this.validatorCache.set(row.validator_address, {
+          status: row.status,
+          jailed: row.jailed,
+          tokens: BigInt(row.voting_power),
+          delegator_shares: BigNumber(row.delegator_shares)
+        });
+      }
+    }
+  }
+
   async checkAndSaveValidators(
     validators: Validator[],
     height: number
@@ -838,16 +858,18 @@ export class StakingModule implements Types.IndexingModule {
           val.operatorAddress, height
         );
         const cache = this.validatorCache.get(consensus_address);
-        db.query({
-          name: "save-validator-status",
-          text: "INSERT INTO validator_status(validator_address, status, jailed, height) VALUES($1,$2,$3,$4)",
-          values: [
-            val.operatorAddress,
-            bondStatusToJSON(val.status),
-            val.jailed,
-            height
-          ]
-        });
+        if (!cache || cache.status != bondStatusToJSON(val.status) || cache.jailed != val.jailed) {
+          db.query({
+            name: "save-validator-status",
+            text: "INSERT INTO validator_status(validator_address, status, jailed, height) VALUES($1,$2,$3,$4)",
+            values: [
+              val.operatorAddress,
+              bondStatusToJSON(val.status),
+              val.jailed,
+              height
+            ]
+          });
+        }
         if (!cache || !(cache.tokens == BigInt(val.tokens))) {
           db.query({
             name: "save-validator-vp",

@@ -1,6 +1,6 @@
 {
-  "name": "@clockwork-projects/basic-pg-indexer",
-  "version": "2.2.2",
+  "name": "@eclesia/basic-pg-indexer",
+  "version": "2.3.1",
   "description": "Basic PostGres eclesia indexer",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -21,7 +21,7 @@
   ],
   "license": "Apache-2.0",
   "devDependencies": {
-    "@clockwork-projects/indexer-engine": "workspace:*",
+    "@eclesia/indexer-engine": "workspace:*",
     "@eslint/js": "^9.24.0",
     "@stylistic/eslint-plugin-ts": "^4.2.0",
     "@types/node": "^22.14.0",
