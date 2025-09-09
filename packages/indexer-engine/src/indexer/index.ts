@@ -75,7 +75,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
       ...defaultIndexerConfig,
       ...config
     };
-    if (!this.config.minimal) {
+    if (this.config.minimal) {
       this.blockQueue = new PromiseQueue<[BlockResponse, BlockResultsResponse]>(this.config.batchSize);
     } else {
       this.blockQueue = new PromiseQueue<[BlockResponse, BlockResultsResponse, Uint8Array]>(this.config.batchSize);
@@ -434,16 +434,16 @@ export class EcleciaIndexer extends EclesiaEmitter {
             const authzMsgs = MsgExec.decode(msgs[i].value).msgs;
             if (authzMsgs) {
               for (let r = 0; r < authzMsgs.length; r++) {
-                this.log.silly("Indexer broadcasting msg for handling: " + authzMsgs[i].typeUrl);
+                this.log.silly("Indexer broadcasting msg for handling: " + authzMsgs[r].typeUrl);
                 const authzMsgEvents = msgevents?.reduce((events, evt) => {
                   if (evt.attributes.filter(x => decodeAttr(x.key) == "authz_msg_index" && decodeAttr(x.value) == "" + r).length > 0) {
                     events.push(evt);
                   }
                   return events;
                 }, [] as Event[]);
-                await this.asyncEmit(authzMsgs[i].typeUrl as never, {
+                await this.asyncEmit(authzMsgs[r].typeUrl as never, {
                   value: {
-                    tx: authzMsgs[i].value as never,
+                    tx: authzMsgs[r].value as never,
                     events: authzMsgEvents
                   } as never,
                   height,
