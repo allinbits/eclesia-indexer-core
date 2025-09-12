@@ -4,6 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "build": "pnpm recursive run --sort build",
+    "lint": "pnpm recursive run --sort lint",
+    "lint:fix": "pnpm recursive run --sort lint:fix",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

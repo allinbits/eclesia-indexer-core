@@ -86,6 +86,9 @@ importers:
 
   packages/core-modules:
     dependencies:
+      '@cosmjs/encoding':
+        specifier: ^0.36.0
+        version: 0.36.0
       '@cosmjs/proto-signing':
         specifier: ^0.33.1
         version: 0.33.1
@@ -226,6 +229,9 @@ packages:
 
   '@cosmjs/encoding@0.33.1':
     resolution: {integrity: sha512-nuNxf29fUcQE14+1p//VVQDwd1iau5lhaW/7uMz7V2AH3GJbFJoJVaKvVyZvdFk+Cnu+s3wCqgq4gJkhRCJfKw==}
+
+  '@cosmjs/encoding@0.36.0':
+    resolution: {integrity: sha512-xFJNd1096EqNxTsdOJN+DODC5HxKmqY0L2iWEnvPFq9UD/W2olYnv0bxV0S+XTs5tF/8/NAZHU3KXxeHTZ97DA==}
 
   '@cosmjs/json-rpc@0.33.1':
     resolution: {integrity: sha512-T6VtWzecpmuTuMRGZWuBYHsMF/aznWCYUt/cGMWNSz7DBPipVd0w774PKpxXzpEbyt5sr61NiuLXc+Az15S/Cw==}
@@ -1905,6 +1911,12 @@ snapshots:
       libsodium-wrappers-sumo: 0.7.15
 
   '@cosmjs/encoding@0.33.1':
+    dependencies:
+      base64-js: 1.5.1
+      bech32: 1.1.4
+      readonly-date: 1.0.0
+
+  '@cosmjs/encoding@0.36.0':
     dependencies:
       base64-js: 1.5.1
       bech32: 1.1.4

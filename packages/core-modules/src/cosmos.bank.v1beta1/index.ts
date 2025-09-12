@@ -49,13 +49,13 @@ export class BankModule implements Types.IndexingModule {
       try {
         await client.query(base);
         this.indexer.log.info("DB has been set up");
-        this.pgIndexer.endTransaction(true);
+        await this.pgIndexer.endTransaction(true);
       } catch (e) {
-        this.pgIndexer.endTransaction(false);
+        await this.pgIndexer.endTransaction(false);
         throw new Error("" + e);
       } 
     } else {
-      this.pgIndexer.endTransaction(true);
+      await this.pgIndexer.endTransaction(true);
     }
   }
 
@@ -294,7 +294,7 @@ export class BankModule implements Types.IndexingModule {
   
     if (amount.length > 0) {
       await (this.pgIndexer.modules["cosmos.auth.v1beta1"] as AuthModule).assertAccount(address);
-      db.query({
+      await db.query({
         name: "save-balance",
         text: "INSERT INTO balances(address,coins,height) VALUES ($1,$2::COIN[],$3) ON CONFLICT ON CONSTRAINT unique_height_balance DO UPDATE SET coins=excluded.coins WHERE balances.address=excluded.address AND balances.height=excluded.height",
         values: [
@@ -313,10 +313,10 @@ export class BankModule implements Types.IndexingModule {
   
     if (amount.length > 0) {
       await (this.pgIndexer.modules["cosmos.auth.v1beta1"] as AuthModule).assertAccount(address);
-      db.query("DELETE FROM balances WHERE address=$1 AND height IS NULL", [
+      await db.query("DELETE FROM balances WHERE address=$1 AND height IS NULL", [
         address
       ]);
-      db.query({
+      await db.query({
         name: "save-genesis-balance",
         text: "INSERT INTO balances(address,coins) VALUES ($1,$2::COIN[])",
         values: [

@@ -1,6 +1,6 @@
 {
   "name": "@eclesia/core-modules-pg",
-  "version": "2.3.1",
+  "version": "2.5.6",
   "description": "Eclesia postgres indexer core modules",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -41,6 +41,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@cosmjs/encoding": "^0.36.0",
     "@cosmjs/proto-signing": "^0.33.1",
     "@cosmjs/tendermint-rpc": "^0.33.1",
     "bech32": "^2.0.0",

@@ -9,6 +9,7 @@ CREATE TABLE blocks
     timestamp        TIMESTAMP WITHOUT TIME ZONE NOT NULL
 );
 CREATE INDEX block_height_index ON blocks (height);
+CREATE INDEX block_time_index ON blocks (timestamp);
 CREATE INDEX block_hash_index ON blocks (hash);
 CREATE INDEX block_proposer_address_index ON blocks (proposer_address);
 
@@ -33,7 +34,7 @@ CREATE TABLE transactions
     raw_log      TEXT,
     logs         JSONB,
 
-    CONSTRAINT unique_tx UNIQUE (hash)
+    CONSTRAINT unique_tx UNIQUE (hash, height)
 );
 CREATE INDEX transaction_hash_index ON transactions (hash);
 CREATE INDEX transaction_height_index ON transactions (height  DESC NULLS LAST);

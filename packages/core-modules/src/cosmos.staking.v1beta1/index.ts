@@ -103,20 +103,20 @@ export class StakingModule implements Types.IndexingModule {
       try {
         await client.query(base);
         this.indexer.log.info("DB has been set up");
-        this.pgIndexer.endTransaction(true);
+        await this.pgIndexer.endTransaction(true);
       } catch (e) {
-        this.pgIndexer.endTransaction(false);
+        await this.pgIndexer.endTransaction(false);
         throw new Error("" + e);
       } 
     } else {
-      this.pgIndexer.endTransaction(true);
+      await this.pgIndexer.endTransaction(true);
     }
 
     await this.cacheValidatorData(); 
     await this.cacheLatestValidatorStatuses();
 
   }
-
+  
   async init(pgIndexer: PgIndexer): Promise<void> {
 
     this.pgIndexer = pgIndexer;
@@ -465,10 +465,9 @@ export class StakingModule implements Types.IndexingModule {
       }
     });
 
-    this.indexer.on("periodic/100", async(event) => {
+    this.indexer.on("periodic/1000", async(event) => {
       const q = QueryPoolRequest.fromPartial({});
       const poolreq = QueryPoolRequest.encode(q).finish();
-
       await this.indexer.callABCI(
         "/cosmos.staking.v1beta1.Query/Pool", poolreq, event.height
       ).then(async(poolq) => {
@@ -827,6 +826,14 @@ export class StakingModule implements Types.IndexingModule {
       }
     }
   }
+  
+  async getLatestValidatorVotingPower(validator: string) {
+    const db = this.pgIndexer.getInstance();
+    const res = await db.query(
+      "SELECT * FROM validator_voting_powers WHERE validator_address=$1 ORDER BY validator_voting_powers.height DESC NULLS LAST LIMIT 1", [validator]
+    );
+    return res.rowCount && res.rowCount > 0 ? res.rows[0] : null;
+  }
 
   async cacheLatestValidatorStatuses() {
     const db = this.pgIndexer.getInstance();
@@ -835,12 +842,13 @@ export class StakingModule implements Types.IndexingModule {
     );
     if (res.rowCount) {
       for (let i = 0; i < res.rowCount; i++) {
+        const vp = await this.getLatestValidatorVotingPower(res.rows[i].validator_address);
         const row = res.rows[i];
         this.validatorCache.set(row.validator_address, {
           status: row.status,
           jailed: row.jailed,
-          tokens: BigInt(row.voting_power),
-          delegator_shares: BigNumber(row.delegator_shares)
+          tokens: BigInt(vp ? vp["voting_power"] : 0),
+          delegator_shares: BigNumber(vp ? vp["delegator_shares"] : 0)
         });
       }
     }
@@ -859,7 +867,7 @@ export class StakingModule implements Types.IndexingModule {
         );
         const cache = this.validatorCache.get(consensus_address);
         if (!cache || cache.status != bondStatusToJSON(val.status) || cache.jailed != val.jailed) {
-          db.query({
+          await db.query({
             name: "save-validator-status",
             text: "INSERT INTO validator_status(validator_address, status, jailed, height) VALUES($1,$2,$3,$4)",
             values: [
@@ -871,7 +879,7 @@ export class StakingModule implements Types.IndexingModule {
           });
         }
         if (!cache || !(cache.tokens == BigInt(val.tokens))) {
-          db.query({
+          await db.query({
             name: "save-validator-vp",
             text: "INSERT INTO validator_voting_powers(validator_address, voting_power, delegator_shares, height) VALUES($1,$2,$3,$4)",
             values: [

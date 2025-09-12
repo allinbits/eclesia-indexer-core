@@ -26,6 +26,7 @@ CREATE TABLE staked_balances
 CREATE INDEX staked_balances_height_index ON staked_balances (height DESC NULLS LAST);
 CREATE INDEX staked_balances_delegator_index ON staked_balances (delegator);
 CREATE INDEX staked_balances_validator_index ON staked_balances (validator);
+CREATE INDEX staked_balances_lookup_index ON staked_balances (delegator, validator, height);
 /* ---- POOL ---- */
 CREATE TABLE staking_pool
 (

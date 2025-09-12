@@ -4,7 +4,7 @@ import { Validator } from "cosmjs-types/cosmos/staking/v1beta1/staking";
 import { TxBody } from "cosmjs-types/cosmos/tx/v1beta1/tx";
 
 import { EcleciaIndexer } from "../indexer";
-import { PromiseQueue } from "../promise-queue";
+import { CircularBuffer } from "../promise-queue";
 
 export type EcleciaIndexerConfig = {
   startHeight?: number;
@@ -24,8 +24,8 @@ export type EcleciaIndexerConfig = {
   endTransaction: (status: boolean) => Promise<void>;
 };
 
-export type FullBlockQueue = PromiseQueue<[BlockResponse, BlockResultsResponse, Uint8Array]>;
-export type MinimalBlockQueue = PromiseQueue<[BlockResponse, BlockResultsResponse]>;
+export type FullBlockQueue = CircularBuffer<[BlockResponse, BlockResultsResponse, Uint8Array]>;
+export type MinimalBlockQueue = CircularBuffer<[BlockResponse, BlockResultsResponse]>;
 export type BlockQueue = FullBlockQueue | MinimalBlockQueue;
 export type WithHeightAndUUID<T> = {
   [K in keyof T]: T[K] & { uuid?: string;

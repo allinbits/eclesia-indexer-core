@@ -7,6 +7,8 @@ export class EclesiaEmitter {
 
   public handled = new Map<string, number>();
 
+  private handlerMap = new WeakMap();
+
   constructor() {
     this.emitter.setMaxListeners(0);
   }
@@ -37,7 +39,8 @@ export class EclesiaEmitter {
     } else {
       this.handled.set(eventName, 1);
     }
-    this.emitter.on(eventName, async(eventData) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wrapper = async(eventData: any) => {
       try {
         await handler(eventData);
         if (eventName !== "uuid" && eventName !== "_unhandled" && eventData.uuid) {
@@ -51,7 +54,9 @@ export class EclesiaEmitter {
             uuid: eventData.uuid });        
         }
       }
-    });
+    };
+    this.handlerMap.set(handler, wrapper);
+    this.emitter.on(eventName, wrapper);
   }
 
   off<TEventName extends keyof WithHeightAndUUID<EventMap> & string>(eventName: TEventName,
@@ -62,6 +67,10 @@ export class EclesiaEmitter {
     } else {
       this.handled.delete(eventName);
     }
-    this.emitter.off(eventName, handler);
+    const wrapper = this.handlerMap.get(handler);
+    if (wrapper) {
+      this.emitter.off(eventName, wrapper);
+      this.handlerMap.delete(handler);
+    }    
   }
 }

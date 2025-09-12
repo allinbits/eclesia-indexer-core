@@ -66,7 +66,7 @@ export class FullBlocksModule implements Types.IndexingModule {
       const block = event.value.block;
       const block_results = event.value.block_results;
       const db = this.pgIndexer.getInstance();
-      db.query({
+      await db.query({
         name: "add-block",
         text: "INSERT INTO blocks(height,hash,num_txs,total_gas, proposer_address, timestamp) VALUES ($1,$2,$3,$4,$5,$6)",
         values: [

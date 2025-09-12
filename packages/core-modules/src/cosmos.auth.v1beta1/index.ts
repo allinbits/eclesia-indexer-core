@@ -47,13 +47,13 @@ export class AuthModule implements Types.IndexingModule {
       try {
         await client.query(base);
         this.indexer.log.info("DB has been set up");
-        this.pgIndexer.endTransaction(true);
+        await this.pgIndexer.endTransaction(true);
       } catch (e) {
-        this.pgIndexer.endTransaction(false);
+        await this.pgIndexer.endTransaction(false);
         throw new Error("" + e);
       } 
     } else {
-      this.pgIndexer.endTransaction(true);
+      await this.pgIndexer.endTransaction(true);
     }
   }
 

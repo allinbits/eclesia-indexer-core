@@ -1,5 +1,6 @@
 import { EcleciaIndexer } from "@eclesia/indexer-engine";
 import { IndexingModule } from "@eclesia/indexer-engine/dist/types";
+import { toPlainObject } from "@eclesia/indexer-engine/dist/utils";
 import { Client } from "pg";
 
 export type PgIndexerConfig = {
@@ -18,15 +19,17 @@ export type PgIndexerConfig = {
 
 export class PgIndexer {
 
-  private db: Client;
+  private db!: Client;
 
   public modules: Record<string, IndexingModule> = {};
 
-  private config: PgIndexerConfig;
-
   private instanceConnected: boolean = false;
 
+  private config: PgIndexerConfig;
+
   public indexer: EcleciaIndexer;
+
+  private clientReuse: number = 0;
 
   static withModules(config: PgIndexerConfig, modules: IndexingModule[]) {
     const pgIndexer = new PgIndexer(config);
@@ -42,14 +45,15 @@ export class PgIndexer {
       this.instanceConnected = false;
     }
     );
+    this.db.on("error", (err) => {
+      this.indexer.log.error("Error in db: " + err);
+    });
     this.indexer = new EcleciaIndexer({ ...config,
       getNextHeight: this.getNextHeight.bind(this),
       beginTransaction: this.beginTransaction.bind(this),
       endTransaction: this.endTransaction.bind(this) });
     this.indexer.log.info("Indexer instantiated");
-    this.db.on("error", (err) => {
-      this.indexer.log.error("Error in db: " + err);
-    });
+   
     for (let i = 0; i < modules.length; i++) {      
       this.indexer.log.verbose("Module " + modules[i].name + " initializing");
       modules[i].init(this);
@@ -121,10 +125,42 @@ export class PgIndexer {
     } catch (e) {
       this.indexer.log.error("Error ending transaction: " + e);
       throw e;
+    } finally {
+      this.clientReuse++;
+      if (this.clientReuse >= 1500) {
+        this.indexer.log.info("Recycling database client");
+        await this.db.end();
+        this.db = new Client(this.config.dbConnectionString);
+        this.db.on("end", () => {
+          this.instanceConnected = false;
+        }
+        );
+        this.db.on("error", (err) => {
+          this.indexer.log.error("Error in db: " + err);
+        });
+        await this.db.connect();
+        this.instanceConnected = true;
+        this.clientReuse = 0;
+      }
     }
   }
 
-  public getInstance() {
-    return this.db;
+  public getInstance(): Client {
+     
+    if (this.config.logLevel !== "silly") {
+      return this.db;
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      const self = this;    
+      return { ...self.db,
+        query: async(...args: Parameters<Client["query"]>): Promise<ReturnType<Client["query"]>> => {
+          const processStart = process.hrtime.bigint();
+          const result = await self.db.query(...args);
+          const processEnd = process.hrtime.bigint();
+          const duration = Number(processEnd - processStart) / 1e6; // Convert to milliseconds
+          self.indexer.log.silly(`Query executed in ${duration.toFixed(3)} ms: ${JSON.stringify(toPlainObject(args))}`);
+          return result;
+        } } as Client;
+    }
   }
 }
