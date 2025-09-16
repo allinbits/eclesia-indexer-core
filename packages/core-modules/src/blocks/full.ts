@@ -23,7 +23,7 @@ export class FullBlocksModule implements Types.IndexingModule {
 
   public depends: string[] = [];
 
-  public provides: string[] = ["blocks", "transdactions"];
+  public provides: string[] = ["blocks", "transactions"];
 
   constructor(registry: [string, GeneratedType][]) {
     this.registry = registry;
