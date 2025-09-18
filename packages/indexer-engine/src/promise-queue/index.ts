@@ -1,9 +1,9 @@
 /*
-  This implements an "infinite" FIFO queue of fixed size.
-  await `continue()` before enqueing items to ensure fixed size (as it only resolves when space available)
-  await `dequeue()` to pop an item  as it will only resolve if the next item is available
-  size() is always at minimum 1 item which is the promise that will resolve to the next item whenever it is enqueued
-*/
+ *This implements an "infinite" FIFO queue of fixed size.
+ *await `continue()` before enqueing items to ensure fixed size (as it only resolves when space available)
+ *await `dequeue()` to pop an item  as it will only resolve if the next item is available
+ *size() is always at minimum 1 item which is the promise that will resolve to the next item whenever it is enqueued
+ */
 
 export class PromiseQueue<T> {
   private items: Array<Promise<T>>;
@@ -30,7 +30,7 @@ export class PromiseQueue<T> {
     this.items = [nextVal];
   }
 
-  enqueue(item: T | PromiseLike<T>) {    
+  enqueue(item: T | PromiseLike<T>) {
     try {
       this.enqueuer(item);
       const nextVal = new Promise<T>((resolve, _reject) => {
@@ -42,7 +42,8 @@ export class PromiseQueue<T> {
           this.batcher = resolve;
         });
       }
-    } catch (e) {
+    }
+    catch (e) {
       console.error("Enqueing rejected data: " + e);
     }
   }
@@ -50,7 +51,7 @@ export class PromiseQueue<T> {
   clear() {
     const nextVal = new Promise<T>((resolve, _reject) => {
       this.enqueuer = resolve;
-    });    
+    });
     this.continuePromise = new Promise<boolean>((resolve, _reject) => {
       this.batcher = resolve;
     });
@@ -78,7 +79,8 @@ export class PromiseQueue<T> {
   isEmpty() {
     if (this.items.length == 0) {
       return true;
-    } else {
+    }
+    else {
       return false;
     }
   }
@@ -89,7 +91,9 @@ export class PromiseQueue<T> {
 }
 
 export class CircularBuffer<T> {
-  private items: Array<T | PromiseLike<T>>;
+  private items: Array<Promise<T>>;
+
+  private enqueuer!: (val: T | PromiseLike<T>) => void;
 
   private count: number = 0;
 
@@ -109,8 +113,18 @@ export class CircularBuffer<T> {
     if (batchSize <= 1) {
       throw new Error("Batch size must be greater than 1");
     }
-    this.items = new Array<T | PromiseLike<T>>(batchSize);
+    const nextVal = new Promise<T>((resolve, _reject) => {
+      this.enqueuer = resolve;
+    });
+    this.items = new Array<Promise<T>>(batchSize);
     this.batchSize = batchSize;
+    this.items[this.nextAvail] = nextVal;
+    this.count = 1;
+    this.nextAvail++;
+    if (this.nextAvail >= this.batchSize) {
+      this.nextAvail = 0;
+    }
+
     this.continuePromise = new Promise<boolean>((resolve, _reject) => {
       this.batcher = resolve;
     });
@@ -119,19 +133,24 @@ export class CircularBuffer<T> {
 
   enqueue(item: T | PromiseLike<T>) {
     try {
-      this.items[this.nextAvail] = item;
+      this.enqueuer(item);
+      const nextVal = new Promise<T>((resolve, _reject) => {
+        this.enqueuer = resolve;
+      });
+      this.items[this.nextAvail] = nextVal;
       this.count++;
       this.nextAvail++;
       if (this.nextAvail >= this.batchSize) {
         this.nextAvail = 0;
       }
-      
+
       if (this.nextAvail == this.next) {
         this.continuePromise = new Promise<boolean>((resolve, _reject) => {
           this.batcher = resolve;
         });
       }
-    } catch (e) {
+    }
+    catch (e) {
       console.error("Enqueing rejected data: " + e);
     }
   }
@@ -152,12 +171,21 @@ export class CircularBuffer<T> {
   clear() {
     this.next = 0;
     this.nextAvail = 0;
-    this.count = 0;
+    const nextVal = new Promise<T>((resolve, _reject) => {
+      this.enqueuer = resolve;
+    });
+    this.items = new Array<Promise<T>>(this.batchSize);
+    this.items[this.nextAvail] = nextVal;
+    this.count = 1;
+    this.nextAvail++;
+    if (this.nextAvail >= this.batchSize) {
+      this.nextAvail = 0;
+    }
+
     this.continuePromise = new Promise<boolean>((resolve, _reject) => {
       this.batcher = resolve;
     });
     this.batcher(true);
-    this.items = new Array<T>(this.batchSize);
   }
 
   continue() {
@@ -171,7 +199,8 @@ export class CircularBuffer<T> {
   isEmpty() {
     if (this.count == 0) {
       return true;
-    } else {
+    }
+    else {
       return false;
     }
   }

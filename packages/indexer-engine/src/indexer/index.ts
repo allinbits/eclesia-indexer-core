@@ -1,31 +1,72 @@
-import { createHash } from "node:crypto";
+/* eslint-disable max-lines */
+import {
+  createHash,
+} from "node:crypto";
 import fs from "node:fs";
 
-import { BlockResponse, BlockResultsResponse, CometClient, toRfc3339WithNanoseconds } from "@cosmjs/tendermint-rpc";
-import { connectComet } from "@cosmjs/tendermint-rpc";
-import { Event } from "@cosmjs/tendermint-rpc";
-import { MsgExec } from "cosmjs-types/cosmos/authz/v1beta1/tx";
+import {
+  BlockResponse, BlockResultsResponse, CometClient, toRfc3339WithNanoseconds,
+} from "@cosmjs/tendermint-rpc";
+import {
+  connectComet,
+} from "@cosmjs/tendermint-rpc";
+import {
+  Event,
+} from "@cosmjs/tendermint-rpc";
+import {
+  MsgExec,
+} from "cosmjs-types/cosmos/authz/v1beta1/tx";
 import {
   QueryValidatorsRequest,
-  QueryValidatorsResponse
+  QueryValidatorsResponse,
 } from "cosmjs-types/cosmos/staking/v1beta1/query";
-import { Validator } from "cosmjs-types/cosmos/staking/v1beta1/staking";
-import { Tx } from "cosmjs-types/cosmos/tx/v1beta1/tx";
-import Fastify, { FastifyInstance } from "fastify";
-import { chain } from "stream-chain";
-import { Parser, parser } from "stream-json";
-import { pick } from "stream-json/filters/Pick";
-import { streamArray } from "stream-json/streamers/StreamArray";
-import { streamValues } from "stream-json/streamers/StreamValues";
-import { batch } from "stream-json/utils/Batch";
-import { v4 as uuidv4 } from "uuid";
+import {
+  Validator,
+} from "cosmjs-types/cosmos/staking/v1beta1/staking";
+import {
+  Tx,
+} from "cosmjs-types/cosmos/tx/v1beta1/tx";
+import Fastify, {
+  FastifyInstance,
+} from "fastify";
+import {
+  chain,
+} from "stream-chain";
+import {
+  Parser, parser,
+} from "stream-json";
+import {
+  pick,
+} from "stream-json/filters/Pick";
+import {
+  streamArray,
+} from "stream-json/streamers/StreamArray";
+import {
+  streamValues,
+} from "stream-json/streamers/StreamValues";
+import {
+  batch,
+} from "stream-json/utils/Batch";
+import {
+  v4 as uuidv4,
+} from "uuid";
 import winston from "winston";
 
-import { EclesiaEmitter } from "../emitter";
-import { CircularBuffer } from "../promise-queue";
-import { BlockQueue, EcleciaIndexerConfig, EmitFunc, MinimalBlockQueue, WithHeightAndUUID } from "../types";
-import { UUIDEvent } from "../types";
-import { decodeAttr } from "../utils";
+import {
+  EclesiaEmitter,
+} from "../emitter";
+import {
+  CircularBuffer,
+} from "../promise-queue";
+import {
+  BlockQueue, EcleciaIndexerConfig, EmitFunc, MinimalBlockQueue, WithHeightAndUUID,
+} from "../types";
+import {
+  UUIDEvent,
+} from "../types";
+import {
+  decodeAttr,
+} from "../utils";
 
 export const defaultIndexerConfig = {
   startHeight: 1,
@@ -39,7 +80,7 @@ export const defaultIndexerConfig = {
   minimal: true,
   init: () => Promise.resolve(),
   beginTransaction: () => Promise.resolve(),
-  endTransaction: (_status: boolean) => Promise.resolve()
+  endTransaction: (_status: boolean) => Promise.resolve(),
 };
 
 export class EcleciaIndexer extends EclesiaEmitter {
@@ -63,10 +104,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
   public log: winston.Logger;
 
-  private debugTime: [number, number] | null = null;
+  private tryToRecover: boolean = false;
 
   private healthCheck = {
-    status: "CONNECTING"
+    status: "CONNECTING",
   };
 
   private subscription: ReturnType<CometClient["subscribeNewBlock"]> | null = null;
@@ -75,52 +116,72 @@ export class EcleciaIndexer extends EclesiaEmitter {
     super();
     this.config = {
       ...defaultIndexerConfig,
-      ...config
+      ...config,
     };
     if (this.config.minimal) {
       this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse]>(this.config.batchSize);
-    } else {
+    }
+    else {
       this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse, Uint8Array]>(this.config.batchSize);
     }
-    const { printf } = winston.format;
+    const {
+      printf,
+    } = winston.format;
 
-    const eclesiaFormat = printf(({ level, message, timestamp }) => {
+    const eclesiaFormat = printf(({
+      level, message, timestamp,
+    }) => {
       return `${timestamp} [${level.toUpperCase()}]:\t${message}`;
     });
     this.log = winston.createLogger({
       level: this.config.logLevel,
-      defaultMeta: { service: "Eclesia Indexer" },
+      defaultMeta: {
+        service: "Eclesia Indexer",
+      },
       transports: [
         new winston.transports.File({
           filename: "error.log",
-          level: "error"
+          level: "error",
         }),
-        new winston.transports.File({ filename: "combined.log" }),
+        new winston.transports.File({
+          filename: "combined.log",
+        }),
         new winston.transports.Console({
-          format: winston.format.combine(winston.format.splat(), winston.format.timestamp(), eclesiaFormat, winston.format.colorize({ all: true }))
-        })
-      ]
+          format: winston.format.combine(winston.format.splat(),
+            winston.format.timestamp(),
+            eclesiaFormat,
+            winston.format.colorize({
+              all: true,
+            })),
+        }),
+      ],
     });
     this.fastify = Fastify({
-      logger: false
+      logger: false,
     });
-    this.on("_unhandled", (msg) => {
-      if (msg.uuid) {
-        this.log.verbose("Unhandled event: " + msg.type);
-        this.emit("uuid", {
-          status: true,
-          uuid: msg.uuid
-        });
-      }
-    });
-    this.fastify.get("/health", async(_request, reply) => {
-      const code = this.healthCheck.status == "OK" ? 200 : 503;
-      reply.code(code).send(this.healthCheck);
-    });
+    this.on("_unhandled",
+      (msg) => {
+        if (msg.uuid) {
+          this.log.verbose("Unhandled event: " + msg.type);
+          this.emit("uuid",
+            {
+              status: true,
+              uuid: msg.uuid,
+            });
+        }
+      });
+    this.fastify.get("/health",
+      async (_request, reply) => {
+        const code = this.healthCheck.status == "OK"
+          ? 200
+          : 503;
+        reply.code(code).send(this.healthCheck);
+      });
     this.fastify.listen({
       port: 80,
-      host: "0.0.0.0"
-    }, (err) => {
+      host: "0.0.0.0",
+    },
+    (err) => {
       if (err) {
         this.log.error(err);
         process.exit(1);
@@ -133,40 +194,59 @@ export class EcleciaIndexer extends EclesiaEmitter {
   }
 
   private blockListener = {
-    next: (data: { header: { height: number } }) => {
+    next: (data: {
+      header: {
+        height: number
+      }
+    }) => {
       this.newBlockReceived(data.header.height);
-    }
+    },
   };
 
   private isMinimal(_blockqueue: BlockQueue): _blockqueue is MinimalBlockQueue {
     if (this.config.minimal) {
       return true;
-    } else {
+    }
+    else {
       return false;
     }
   }
 
   public async connect() {
     try {
-      this.client = await connectComet(this.config.rpcUrl);      
+      if (this.client && this.tryToRecover) {
+        this.log.verbose("Recover from error. Attempting to disconnect from RPC");
+        this.client.disconnect();
+        this.blockClient.disconnect();
+        this.log.verbose("Disconnected from RPC");
+      }
+      this.client = await connectComet(this.config.rpcUrl);
       this.log.info("Connected to RPC for ad hoc queries");
 
       this.blockClient = await connectComet(this.config.rpcUrl);
       this.log.info("Connected to RPC for block & validator info");
+
       return true;
-    } catch (error) {
+    }
+    catch (error) {
       this.log.error(error);
+      this.tryToRecover = true;
       return false;
     }
   }
 
   public async start() {
+    if (this.blockQueue) {
+      this.blockQueue.clear();
+      this.log.verbose("Starting, clearing block queue");
+    }
     if (!this.initialized) {
       try {
         if (this.config.init) {
           await this.config.init();
         }
-      } catch (e) {
+      }
+      catch (e) {
         this.log.error("Failed to initialize indexer: " + e);
         this.setStatus("FAILED");
         throw e;
@@ -176,7 +256,8 @@ export class EcleciaIndexer extends EclesiaEmitter {
           if (this.config.genesisPath) {
             await this.parseGenesis();
           }
-        } catch (e) {
+        }
+        catch (e) {
           this.log.error("Failed to parse genesis: " + e);
           this.setStatus("FAILED");
           throw e;
@@ -184,39 +265,53 @@ export class EcleciaIndexer extends EclesiaEmitter {
       }
       this.initialized = true;
     }
-    this.subscription = this.client.subscribeNewBlock ? this.client.subscribeNewBlock() : null;
     try {
       await this.connect();
+      if (!this.config.usePolling && this.subscription) {
+        this.subscription.removeListener(this.blockListener);
+        this.subscription = null;
+        this.log.verbose("Removed existing block listener and subscription");
+      }
+      this.subscription = this.client.subscribeNewBlock
+        ? this.client.subscribeNewBlock()
+        : null;
       const status = await this.client.status();
       this.latestHeight = status.syncInfo.latestBlockHeight;
-      this.blockQueue.clear();
       this.log.info("Current chain height: " + this.latestHeight);
 
       this.heightToProcess = await this.config.getNextHeight();
       if (this.config.usePolling) {
         this.pollForBlock();
-      } else {
+      }
+      else {
         if (this.subscription) {
           this.subscription.addListener(this.blockListener);
-        } else {
+        }
+        else {
           throw new Error("Could not subscribe to new blocks");
         }
       }
-    } catch (e) {
+    }
+    catch (e) {
       this.log.error("Failed to set up block listening: " + e);
       this.setStatus("FAILED");
       throw e;
     }
-  
-    this.fetcher().catch((e)=> {       
+
+    this.tryToRecover = false;
+    this.fetcher().catch((e) => {
+      this.setStatus("FAILED");
       throw new Error("Error in fetching service: " + e);
     });
-    
+
     const hrTime = process.hrtime();
     let ms = hrTime[0] * 1000000 + hrTime[1] / 1000;
-    while (this.blockQueue.size() > 0) {
+    while (this.blockQueue.size() > 0 && !this.tryToRecover) {
       // await the dequeued promise is essentially awaiting fetched data for that block
       try {
+        if (this.tryToRecover) {
+          throw new Error("Exiting processing loop. Attempting to recover indexer");
+        }
         // Index block inside a db transaction to ensure data consistency
         await this.config.beginTransaction();
         this.log.silly("Started db tx");
@@ -224,23 +319,27 @@ export class EcleciaIndexer extends EclesiaEmitter {
         if (this.isMinimal(this.blockQueue)) {
           const toProcess = await this.blockQueue.dequeue();
           this.log.silly("Retrieved block data");
-          if (!toProcess) {
+          if (!toProcess || !toProcess[0] || !toProcess[1]) {
             throw new Error("Could not fetch block");
           }
           height = toProcess[0].block.header.height;
           timestamp = toRfc3339WithNanoseconds(toProcess[0].block.header.time);
-          await this.processBlock(toProcess[0], toProcess[1]);
-        } else {
+          await this.processBlock(toProcess[0],
+            toProcess[1]);
+        }
+        else {
           const toProcess = await this.blockQueue.dequeue();
           this.log.silly("Retrieved block data");
-          if (!toProcess) {
+          if (!toProcess || !toProcess[0] || !toProcess[1] || !toProcess[2]) {
             throw new Error("Could not fetch block");
           }
 
           this.log.silly("Decoded block");
           height = toProcess[0].block.header.height;
           timestamp = toRfc3339WithNanoseconds(toProcess[0].block.header.time);
-          await this.processBlock(toProcess[0], toProcess[1], QueryValidatorsResponse.decode(toProcess[2]).validators);
+          await this.processBlock(toProcess[0],
+            toProcess[1],
+            QueryValidatorsResponse.decode(toProcess[2]).validators);
         }
         // Emit events to trigger periodic operations every 50, 100 and 1000 blocks
         if (height % 1000 == 0) {
@@ -250,38 +349,40 @@ export class EcleciaIndexer extends EclesiaEmitter {
           ms = newms;
           const rate = 1000000000 / duration;
           this.log.info("Processing:" + rate.toFixed(2) + "blocks/sec");
-          await this.asyncEmit("periodic/1000", {
-            value: null,
-            height,
-            timestamp
-          });
+          await this.asyncEmit("periodic/1000",
+            {
+              value: null,
+              height,
+              timestamp,
+            });
         }
         if (height % 100 == 0) {
-          await this.asyncEmit("periodic/100", {
-            value: null,
-            height,
-            timestamp
-          });
+          await this.asyncEmit("periodic/100",
+            {
+              value: null,
+              height,
+              timestamp,
+            });
         }
         if (height % 50 == 0) {
-          await this.asyncEmit("periodic/50", {
-            value: null,
-            height,
-            timestamp
-          });
+          await this.asyncEmit("periodic/50",
+            {
+              value: null,
+              height,
+              timestamp,
+            });
         }
         this.log.silly("Handled periodic events");
 
         await this.config.endTransaction(true);
 
         this.log.silly("Committed db tx");
-      } catch (e) {
+      }
+      catch (e) {
         this.log.error("" + e);
         this.setStatus("FAILED");
         await this.config.endTransaction(false);
-        if (this.subscription) {
-          this.subscription.removeListener(this.blockListener);
-        }
+        this.tryToRecover = true;
         this.retryCount++;
         break;
       }
@@ -291,17 +392,27 @@ export class EcleciaIndexer extends EclesiaEmitter {
     if (this.retryCount < 3) {
       this.log.debug("Indexer retryCount: " + this.retryCount);
       this.log.info("Indexer is restarting");
-      this.start();
-    } 
+      setTimeout(() => this.start(),
+        this.retryCount * 5000);
+    }
+    else {
+      this.log.info("Indexer failed too many times. Exiting.");
+      process.exit(1);
+    }
   }
 
-  public asyncEmit: EmitFunc<keyof WithHeightAndUUID<EventMap>> = async(type,
-    event) => {
+  public asyncEmit: EmitFunc<keyof WithHeightAndUUID<EventMap>> = async (
+    type,
+    event,
+  ) => {
     event.uuid = uuidv4();
-    // More than 1 listener can be registered for an event type
-    // Fortunately these are all set up during module init() so we have a consistent count
-    // so we can count responses to resolve when complete
-    // values are irrelevant as promise resolution is only used for flow control
+
+    /*
+     * More than 1 listener can be registered for an event type
+     * Fortunately these are all set up during module init() so we have a consistent count
+     * so we can count responses to resolve when complete
+     * values are irrelevant as promise resolution is only used for flow control
+     */
     let listenerCount = this.handled.get(type);
     if (!listenerCount) {
       // Setting listenerCount to 1 (the unhandled listener)
@@ -315,18 +426,22 @@ export class EcleciaIndexer extends EclesiaEmitter {
             listenersResponded++;
             if (listenersResponded == listenerCount) {
               // All listeners have done their thing so we can remove listener, resolve and continue execution
-              this.off("uuid", returnFunc);
+              this.off("uuid",
+                returnFunc);
               resolve();
             }
-          } else {
+          }
+          else {
             // At least 1 listener is reporting an error. Reject and handle exception at the original asyncEmit location
             reject(ev.error);
           }
         }
       };
-      this.on("uuid", returnFunc);
+      this.on("uuid",
+        returnFunc);
     });
-    this.emit(type, event);
+    this.emit(type,
+      event);
 
     return prom;
   };
@@ -337,7 +452,8 @@ export class EcleciaIndexer extends EclesiaEmitter {
       processStart = process.hrtime();
     }
     const height = block.block.header.height;
-    this.log.debug("Processing block: %d", height);
+    this.log.debug("Processing block: %d",
+      height);
     this.log.silly("Started db tx");
 
     // Initialize height & timestamp to be used for this block-processing run
@@ -345,36 +461,41 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
     // Use & await asyncEmit to ensure db insertions in order
 
-    // Emit block information to any interested modules.
-    // Primarily the required block module listens to this
-    await this.asyncEmit("block", {
-      value: {
-        block,
-        block_results
-      },
-      height,
-      timestamp
-    });
+    /*
+     * Emit block information to any interested modules.
+     * Primarily the required block module listens to this
+     */
+    await this.asyncEmit("block",
+      {
+        value: {
+          block,
+          block_results,
+        },
+        height,
+        timestamp,
+      });
     this.log.silly("Modules handled block event");
 
     // Deal with begin_block events first
-    await this.asyncEmit("begin_block", {
-      value: {
-        events: block_results.beginBlockEvents,
-        validators
-      },
-      height,
-      timestamp
-    });
+    await this.asyncEmit("begin_block",
+      {
+        value: {
+          events: block_results.beginBlockEvents,
+          validators,
+        },
+        height,
+        timestamp,
+      });
 
     this.log.silly("Modules handled begin_block events");
 
     // Then individual tx_events
-    await this.asyncEmit("tx_events", {
-      value: block_results.results,
-      height,
-      timestamp
-    });
+    await this.asyncEmit("tx_events",
+      {
+        value: block_results.results,
+        height,
+        timestamp,
+      });
     this.log.silly("Modules handled tx events");
 
     // Emit details and result for each tx msg separately
@@ -389,20 +510,22 @@ export class EcleciaIndexer extends EclesiaEmitter {
         continue;
       }
       if (tx.body && tx.body.memo != "") {
-        const txHash = createHash("sha256").update(block.block.txs[t]).digest("hex");
-        await this.asyncEmit("tx_memo", {
-          value: {
-            txHash,
-            txBody: tx.body
-          },
-          height,
-          timestamp
-        });
+        const txHash = createHash("sha256").update(block.block.txs[t])
+          .digest("hex");
+        await this.asyncEmit("tx_memo",
+          {
+            value: {
+              txHash,
+              txBody: tx.body,
+            },
+            height,
+            timestamp,
+          });
       }
       // parsing log rather than using events directly in order to have msg_index available to filter appropriate events for each msg
       const events: Array<{
-        msg_index?: number;
-        events: Event[];
+        msg_index?: number
+        events: Event[]
       }> = txlog
         ? JSON.parse(txlog)
         : [];
@@ -411,18 +534,19 @@ export class EcleciaIndexer extends EclesiaEmitter {
       if (msgs) {
         for (let i = 0; i < msgs.length; i++) {
           this.log.silly("Indexer broadcasting msg for handling: " + msgs[i].typeUrl);
-          const msgevents =
-            msgs.length > 1
-              ? events.find((x) => x.msg_index == i)?.events
+          const msgevents
+            = msgs.length > 1
+              ? events.find(x => x.msg_index == i)?.events
               : events[0].events;
-          await this.asyncEmit(msgs[i].typeUrl as never, {
-            value: {
-              tx: msgs[i].value as never,
-              events: msgevents
-            } as never,
-            height,
-            timestamp
-          });
+          await this.asyncEmit(msgs[i].typeUrl as never,
+            {
+              value: {
+                tx: msgs[i].value as never,
+                events: msgevents,
+              } as never,
+              height,
+              timestamp,
+            });
           if (msgs[i].typeUrl == "/cosmos.authz.v1beta1.MsgExec") {
             const authzMsgs = MsgExec.decode(msgs[i].value).msgs;
             if (authzMsgs) {
@@ -433,15 +557,17 @@ export class EcleciaIndexer extends EclesiaEmitter {
                     events.push(evt);
                   }
                   return events;
-                }, [] as Event[]);
-                await this.asyncEmit(authzMsgs[r].typeUrl as never, {
-                  value: {
-                    tx: authzMsgs[r].value as never,
-                    events: authzMsgEvents
-                  } as never,
-                  height,
-                  timestamp
-                });
+                },
+                [] as Event[]);
+                await this.asyncEmit(authzMsgs[r].typeUrl as never,
+                  {
+                    value: {
+                      tx: authzMsgs[r].value as never,
+                      events: authzMsgEvents,
+                    } as never,
+                    height,
+                    timestamp,
+                  });
               }
             }
           }
@@ -451,115 +577,161 @@ export class EcleciaIndexer extends EclesiaEmitter {
     this.log.silly("Modules handled msg events");
 
     // Then deal with end_block events
-    await this.asyncEmit("end_block", {
-      value: block_results.endBlockEvents,
-      height,
-      timestamp
-    });
+    await this.asyncEmit("end_block",
+      {
+        value: block_results.endBlockEvents,
+        height,
+        timestamp,
+      });
     this.log.silly("Modules handled end_block events");
     if (this.config.logLevel == "silly") {
       const processEnd = process.hrtime(processStart);
       const processTime = processEnd[0] * 1000 + processEnd[1] / 1000000;
-      this.log.silly("Processed block %d in %d ms", height, processTime.toFixed(2));
+      this.log.silly("Processed block %d in %d ms",
+        height,
+        processTime.toFixed(2));
     }
   }
 
   private async fetcher() {
-    let error = false;
     for (let i = this.heightToProcess; i <= this.latestHeight; i++) {
       this.log.debug("Fetching: " + i);
+      if (this.tryToRecover) {
+        this.log.verbose("Exiting fetcher loop. Attempting to recover indexer");
+        break;
+      }
       try {
         if (this.isMinimal(this.blockQueue)) {
-          const toIndex = Promise.all([
-            this.blockClient.block(i) as Promise<BlockResponse>,
-            this.blockClient.blockResults(i) as Promise<BlockResultsResponse>
-          ]).catch((e) => {            
+          const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse]> = new Promise((resolve, reject) => {
+            setTimeout(reject,
+              20000,
+              false);
+          });
+          const toIndex = Promise.race([Promise.all([this.blockClient.block(i) as Promise<BlockResponse>, this.blockClient.blockResults(i) as Promise<BlockResultsResponse>]), timeoutPromise]).catch((e) => {
             this.log.error("Error fetching block: " + i + " : " + e);
-
+            this.tryToRecover = true;
             return Promise.resolve([]);
           }) as Promise<[BlockResponse, BlockResultsResponse]>;
-
           this.blockQueue.enqueue(toIndex);
-        } else {
-          const q = QueryValidatorsRequest.fromPartial({ pagination: { limit: 1000n } });
+        }
+        else {
+          const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse, Uint8Array]> = new Promise((resolve, reject) => {
+            setTimeout(reject,
+              20000,
+              false);
+          });
+          const q = QueryValidatorsRequest.fromPartial({
+            pagination: {
+              limit: 1000n,
+            },
+          });
           const vals = QueryValidatorsRequest.encode(q).finish();
-          const toIndex = Promise.all([
-            this.blockClient.block(i) as Promise<BlockResponse>,
-            this.blockClient.blockResults(i) as Promise<BlockResultsResponse>,
-            this.callABCI("/cosmos.staking.v1beta1.Query/Validators", vals, i, false)
-          ]).catch((e) => {            
+          const toIndex = Promise.race([
+            Promise.all([
+              this.blockClient.block(i) as Promise<BlockResponse>,
+              this.blockClient.blockResults(i) as Promise<BlockResultsResponse>,
+              this.callABCI("/cosmos.staking.v1beta1.Query/Validators",
+                vals,
+                i,
+                false),
+            ]),
+            timeoutPromise,
+          ]).catch((e) => {
             this.log.error("Error fetching block: " + i + " : " + e);
+            this.tryToRecover = true;
             return Promise.resolve([]);
           }) as Promise<[BlockResponse, BlockResultsResponse, Uint8Array]>;
-
           this.blockQueue.enqueue(toIndex);
         }
         await this.blockQueue.continue();
-      } catch (e) {
+        if (this.tryToRecover) {
+          this.retryCount++;
+          throw new Error("RPC not responding");
+        }
+      }
+      catch (e) {
         this.log.error(e);
-        error = true;
         break;
       }
     }
-    if (!error) {
+    if (!this.tryToRecover) {
       this.blockQueue.setSynced();
       this.log.info("Synced to latest height");
     }
   }
-  
+
   public async callABCI(path: string, data: Uint8Array, height?: number, adHoc: boolean = true): Promise<Uint8Array> {
-    const timeout: Promise<void> = new Promise((resolve) => {
-      setTimeout(resolve, 30000);
-    });
-    const abciq = await Promise.race([
-      (adHoc ? this.client : this.blockClient).abciQuery({
+    try {
+      const abciq = await
+      (adHoc
+        ? this.client
+        : this.blockClient).abciQuery({
         path,
         data,
-        height: height
-      }),
-      timeout
-    ]);
-    if (abciq) {
-      return abciq.value;
-    } else {
+        height: height,
+      });
+      if (abciq) {
+        return abciq.value;
+      }
+      else {
+        this.tryToRecover = true;
+        this.setStatus("FAILED");
+        throw new Error("RPC not responding. Query at: " + path);
+      }
+    }
+    catch (_e) {
+      this.tryToRecover = true;
       this.setStatus("FAILED");
+      this.retryCount++;
       throw new Error("RPC not responding. Query at: " + path);
     }
   }
 
   private newBlockReceived(height: number): void {
-    this.log.info("Received new block: %d", height);
+    this.log.info("Received new block: %d",
+      height);
 
     // If we are synced, add to end of queue
-    if (this.blockQueue.synced) {
+    if (this.blockQueue.synced && !this.tryToRecover) {
+      if (this.blockQueue.size() + 1 == this.config.batchSize) {
+        this.log.error("Block queue is full. Cannot add new block");
+        this.tryToRecover = true;
+        this.retryCount++;
+        return;
+      }
       try {
         if (this.isMinimal(this.blockQueue)) {
-          this.blockQueue.enqueue(Promise.all([
-            this.client.block(height) as Promise<BlockResponse>,
-            this.client.blockResults(height) as Promise<BlockResultsResponse>
-          ]).catch((e) => {            
+          this.blockQueue.enqueue(Promise.all([this.client.block(height) as Promise<BlockResponse>, this.client.blockResults(height) as Promise<BlockResultsResponse>]).catch((e) => {
             this.log.error("Error fetching block: " + height + " : " + e);
 
             return Promise.resolve([]);
-          }) as Promise<[BlockResponse, BlockResultsResponse]>
-          );
-        } else {
-          const q = QueryValidatorsRequest.fromPartial({ pagination: { limit: 1000n } });
+          }) as Promise<[BlockResponse, BlockResultsResponse]>);
+        }
+        else {
+          const q = QueryValidatorsRequest.fromPartial({
+            pagination: {
+              limit: 1000n,
+            },
+          });
           const vals = QueryValidatorsRequest.encode(q).finish();
           this.blockQueue.enqueue(Promise.all([
             this.client.block(height) as Promise<BlockResponse>,
             this.client.blockResults(height) as Promise<BlockResultsResponse>,
-            this.callABCI("/cosmos.staking.v1beta1.Query/Validators", vals, height, false)
-          ]).catch((e) => {            
+            this.callABCI("/cosmos.staking.v1beta1.Query/Validators",
+              vals,
+              height,
+              false),
+          ]).catch((e) => {
             this.log.error("Error fetching block: " + height + " : " + e);
             return Promise.resolve([]);
-          }) as Promise<[BlockResponse, BlockResultsResponse, Uint8Array]>
-          );
+          }) as Promise<[BlockResponse, BlockResultsResponse, Uint8Array]>);
         }
-      } catch (e) {
+      }
+      catch (e) {
         this.log.error("" + e);
       }
-    } else {
+    }
+    else {
       this.latestHeight = height;
     }
   }
@@ -573,13 +745,15 @@ export class EcleciaIndexer extends EclesiaEmitter {
     }
     setTimeout(() => {
       this.pollForBlock();
-    }, this.config.pollingInterval);
+    },
+    this.config.pollingInterval);
   }
 
   private readGenesis(): Parser {
     if (this.config.genesisPath) {
       return fs.createReadStream(this.config.genesisPath).pipe(parser());
-    } else {
+    }
+    else {
       throw new Error("Genesis path not set");
     }
   }
@@ -588,19 +762,32 @@ export class EcleciaIndexer extends EclesiaEmitter {
     const readPromise = new Promise<boolean>((resolve, reject) => {
       try {
         const filters = path.split(".");
-        const pickers = filters.map((filter) => pick({ filter }));
+        const pickers = filters.map(filter => pick({
+          filter,
+        }));
         let counter = 0;
-        chain([this.readGenesis(), ...pickers, streamArray(), batch({ batchSize: 1000 }), processor])
-          .on("data", (data) => {
-            if (data && Array.isArray(data)) {
-              counter = counter + data.length;
-            }
-          })
-          .on("end", () => {
-            this.log.info(`Processed ${counter} entries`);
-            resolve(true);
-          });
-      } catch (_e) {
+        chain([
+          this.readGenesis(),
+          ...pickers,
+          streamArray(),
+          batch({
+            batchSize: 1000,
+          }),
+          processor,
+        ])
+          .on("data",
+            (data) => {
+              if (data && Array.isArray(data)) {
+                counter = counter + data.length;
+              }
+            })
+          .on("end",
+            () => {
+              this.log.info(`Processed ${counter} entries`);
+              resolve(true);
+            });
+      }
+      catch (_e) {
         this.log.verbose("Error in setArrayReader: " + _e);
         reject();
       }
@@ -613,18 +800,23 @@ export class EcleciaIndexer extends EclesiaEmitter {
     const readPromise = new Promise<boolean>((resolve, reject) => {
       try {
         const filters = path.split(".");
-        const pickers = filters.map((filter) => pick({ filter }));
+        const pickers = filters.map(filter => pick({
+          filter,
+        }));
 
         let counter = 0;
         chain([this.readGenesis(), ...pickers, streamValues(), processor])
-          .on("data", (_data) => {
-            counter++;
-          })
-          .on("end", () => {
-            this.log.info(`Processed ${counter} entries`);
-            resolve(true);
-          });
-      } catch (_e) {
+          .on("data",
+            (_data) => {
+              counter++;
+            })
+          .on("end",
+            () => {
+              this.log.info(`Processed ${counter} entries`);
+              resolve(true);
+            });
+      }
+      catch (_e) {
         reject();
       }
     });
@@ -645,37 +837,54 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
           this.log.verbose("Importing " + key + "...");
           if (genesisEntry[1] == "array") {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            await this.setArrayReader(genesisEntry[2], async(data: any) => {              
-              await this.asyncEmit(key as never, { value: data.map((x: { value: never }) => x.value) } as never);
-              return data;
-            });
-          } else {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            await this.setValueReader(genesisEntry[2], async(data: any) => {
-              await this.asyncEmit(key as never, { value: data.value } as never);
-              return data;
-            });
+            await this.setArrayReader(genesisEntry[2],
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              async (data: any) => {
+                await this.asyncEmit(key as never,
+                  {
+                    value: data.map((x: {
+                      value: never
+                    }) => x.value),
+                  } as never);
+                return data;
+              });
+          }
+          else {
+            await this.setValueReader(genesisEntry[2],
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              async (data: any) => {
+                await this.asyncEmit(key as never,
+                  {
+                    value: data.value,
+                  } as never);
+                return data;
+              });
           }
         }
       }
 
       this.log.info("Importing gen TXs...");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await this.setArrayReader("app_state.genutil.gen_txs", async(data: any) => {
-        for (let j = 0; j < data.length; j++) {
-          const gentx = data[j].value;
-          for (let i = 0; i < gentx.body.messages.length; i++) {
-            const msg = gentx.body.messages[i];
-            await this.asyncEmit(("gentx" + msg["@type"]) as never, { value: msg } as never);
+
+      await this.setArrayReader("app_state.genutil.gen_txs",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async (data: any) => {
+          for (let j = 0; j < data.length; j++) {
+            const gentx = data[j].value;
+            for (let i = 0; i < gentx.body.messages.length; i++) {
+              const msg = gentx.body.messages[i];
+              await this.asyncEmit(("gentx" + msg["@type"]) as never,
+                {
+                  value: msg,
+                } as never);
+            }
           }
-        }
-        return data;
-      });
+          return data;
+        });
       await this.config.endTransaction(true);
 
       this.log.info("Finished importing");
-    } catch (e) {
+    }
+    catch (e) {
       await this.config.endTransaction(false);
       this.log.error("Failed to import genesis");
       throw e;

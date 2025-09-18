@@ -1,6 +1,6 @@
 {
   "name": "@eclesia/indexer-engine",
-  "version": "2.5.8",
+  "version": "2.6.3",
   "description": "Core eclesia indexer engine",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,7 +22,7 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@eslint/js": "^9.24.0",
-    "@stylistic/eslint-plugin-ts": "^4.2.0",
+    "@stylistic/eslint-plugin": "^5.3.1",
     "@types/node": "^22.14.0",
     "@types/stream-chain": "^2.1.0",
     "@types/stream-json": "^1.7.8",

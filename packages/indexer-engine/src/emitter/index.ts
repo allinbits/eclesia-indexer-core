@@ -1,6 +1,8 @@
 import EventEmitter from "events";
 
-import { WithHeightAndUUID } from "../types";
+import {
+  WithHeightAndUUID,
+} from "../types";
 
 export class EclesiaEmitter {
   private emitter = new EventEmitter();
@@ -15,62 +17,99 @@ export class EclesiaEmitter {
 
   emit<EType extends keyof (WithHeightAndUUID<EventMap>) & string>(
     eventName: EType,
-    eventArg: WithHeightAndUUID<EventMap>[EType] & { uuid?: string }) {
+    eventArg: WithHeightAndUUID<EventMap>[EType] & {
+      uuid?: string
+    },
+  ) {
     if (this.handled.has(eventName)) {
-      this.emitter.emit(eventName, eventArg);
-    } else {
-      this.emitter.emit("_unhandled", {
-        type: eventName as string,
-        event: eventArg,
-        uuid: eventArg.uuid
-      });
+      this.emitter.emit(
+        eventName, eventArg,
+      );
+    }
+    else {
+      this.emitter.emit(
+        "_unhandled", {
+          type: eventName as string,
+          event: eventArg,
+          uuid: eventArg.uuid,
+        },
+      );
     }
   }
 
-  on<TEventName extends keyof WithHeightAndUUID<EventMap> & string | "_unhandled">(eventName: TEventName,
+  on<TEventName extends keyof WithHeightAndUUID<EventMap> & string | "_unhandled">(
+    eventName: TEventName,
     handler: TEventName extends "_unhandled"
-      ? (eventArg: { type: string;
-        event: unknown;
-        uuid: string; }) => void
-      : (eventArg: TEventName extends keyof WithHeightAndUUID<EventMap> ? WithHeightAndUUID<EventMap>[TEventName] : never) => void) {
+      ? (eventArg: {
+        type: string
+        event: unknown
+        uuid: string
+      }) => void
+      : (eventArg: TEventName extends keyof WithHeightAndUUID<EventMap> ? WithHeightAndUUID<EventMap>[TEventName] : never) => void,
+  ) {
     const count = this.handled.get(eventName);
     if (count) {
-      this.handled.set(eventName, count + 1);
-    } else {
-      this.handled.set(eventName, 1);
+      this.handled.set(
+        eventName, count + 1,
+      );
+    }
+    else {
+      this.handled.set(
+        eventName, 1,
+      );
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const wrapper = async(eventData: any) => {
+    const wrapper = async (eventData: any) => {
       try {
         await handler(eventData);
         if (eventName !== "uuid" && eventName !== "_unhandled" && eventData.uuid) {
-          this.emit("uuid", { status: true,
-            uuid: eventData.uuid });
+          this.emit(
+            "uuid", {
+              status: true,
+              uuid: eventData.uuid,
+            },
+          );
         }
-      } catch (error) {    
-        if (eventName !== "uuid" && eventName !== "_unhandled" && eventData.uuid) {    
-          this.emit("uuid", { status: false,
-            error: error as string,
-            uuid: eventData.uuid });        
+      }
+      catch (error) {
+        if (eventName !== "uuid" && eventName !== "_unhandled" && eventData.uuid) {
+          this.emit(
+            "uuid", {
+              status: false,
+              error: error as string,
+              uuid: eventData.uuid,
+            },
+          );
         }
       }
     };
-    this.handlerMap.set(handler, wrapper);
-    this.emitter.on(eventName, wrapper);
+    this.handlerMap.set(
+      handler, wrapper,
+    );
+    this.emitter.on(
+      eventName, wrapper,
+    );
   }
 
-  off<TEventName extends keyof WithHeightAndUUID<EventMap> & string>(eventName: TEventName,
-    handler: (eventArg: WithHeightAndUUID<EventMap>[TEventName]) => void) {
+  off<TEventName extends keyof WithHeightAndUUID<EventMap> & string>(
+    eventName: TEventName,
+    handler: (eventArg: WithHeightAndUUID<EventMap>[TEventName]) => void,
+  ) {
     const count = this.handled.get(eventName);
     if (count && count > 1) {
-      this.handled.set(eventName, count - 1);
-    } else {
+      this.handled.set(
+        eventName, count - 1,
+      );
+    }
+    else {
       this.handled.delete(eventName);
     }
     const wrapper = this.handlerMap.get(handler);
     if (wrapper) {
-      this.emitter.off(eventName, wrapper);
+      this.emitter.off(
+        eventName, wrapper,
+      );
       this.handlerMap.delete(handler);
-    }    
+    }
   }
 }
