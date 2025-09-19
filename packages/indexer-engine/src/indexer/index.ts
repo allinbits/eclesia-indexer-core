@@ -2,7 +2,7 @@
 import {
   createHash,
 } from "node:crypto";
-import fs from "node:fs";
+import * as fs from "node:fs";
 
 import {
   BlockResponse, BlockResultsResponse, CometClient, toRfc3339WithNanoseconds,
@@ -15,58 +15,46 @@ import {
 } from "@cosmjs/tendermint-rpc";
 import {
   MsgExec,
-} from "cosmjs-types/cosmos/authz/v1beta1/tx";
+} from "cosmjs-types/cosmos/authz/v1beta1/tx.js";
 import {
   QueryValidatorsRequest,
   QueryValidatorsResponse,
-} from "cosmjs-types/cosmos/staking/v1beta1/query";
+} from "cosmjs-types/cosmos/staking/v1beta1/query.js";
 import {
   Validator,
-} from "cosmjs-types/cosmos/staking/v1beta1/staking";
+} from "cosmjs-types/cosmos/staking/v1beta1/staking.js";
 import {
   Tx,
-} from "cosmjs-types/cosmos/tx/v1beta1/tx";
+} from "cosmjs-types/cosmos/tx/v1beta1/tx.js";
 import Fastify, {
   FastifyInstance,
 } from "fastify";
 import {
   chain,
 } from "stream-chain";
-import {
-  Parser, parser,
-} from "stream-json";
-import {
-  pick,
-} from "stream-json/filters/Pick";
-import {
-  streamArray,
-} from "stream-json/streamers/StreamArray";
-import {
-  streamValues,
-} from "stream-json/streamers/StreamValues";
-import {
-  batch,
-} from "stream-json/utils/Batch";
+import * as Parser from "stream-json";
+import * as Pick from "stream-json/filters/Pick.js";
+import * as StreamArray from "stream-json/streamers/StreamArray.js";
+import * as StreamValues from "stream-json/streamers/StreamValues.js";
+import * as Batch from "stream-json/utils/Batch.js";
 import {
   v4 as uuidv4,
 } from "uuid";
-import winston from "winston";
+import * as winston from "winston";
 
 import {
   EclesiaEmitter,
-} from "../emitter";
+} from "../emitter/index.js";
 import {
   CircularBuffer,
-} from "../promise-queue";
+} from "../promise-queue/index.js";
 import {
-  BlockQueue, EcleciaIndexerConfig, EmitFunc, MinimalBlockQueue, WithHeightAndUUID,
-} from "../types";
-import {
-  UUIDEvent,
-} from "../types";
+  BlockQueue, EcleciaIndexerConfig, EmitFunc, MinimalBlockQueue,
+  UUIDEvent, WithHeightAndUUID,
+} from "../types/index.js";
 import {
   decodeAttr,
-} from "../utils";
+} from "../utils/index.js";
 
 export const defaultIndexerConfig = {
   startHeight: 1,
@@ -381,7 +369,12 @@ export class EcleciaIndexer extends EclesiaEmitter {
       catch (e) {
         this.log.error("" + e);
         this.setStatus("FAILED");
-        await this.config.endTransaction(false);
+        try {
+          await this.config.endTransaction(false);
+        }
+        catch (dbe) {
+          this.log.error("Error ending transaction. Must be a DB error: " + dbe);
+        }
         this.tryToRecover = true;
         this.retryCount++;
         break;
@@ -749,9 +742,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
     this.config.pollingInterval);
   }
 
-  private readGenesis(): Parser {
+  private readGenesis(): Parser.Parser {
     if (this.config.genesisPath) {
-      return fs.createReadStream(this.config.genesisPath).pipe(parser());
+      return fs.createReadStream(this.config.genesisPath).pipe(Parser.parser());
     }
     else {
       throw new Error("Genesis path not set");
@@ -762,15 +755,15 @@ export class EcleciaIndexer extends EclesiaEmitter {
     const readPromise = new Promise<boolean>((resolve, reject) => {
       try {
         const filters = path.split(".");
-        const pickers = filters.map(filter => pick({
+        const pickers = filters.map(filter => Pick.pick({
           filter,
         }));
         let counter = 0;
         chain([
           this.readGenesis(),
           ...pickers,
-          streamArray(),
-          batch({
+          StreamArray.streamArray(),
+          Batch.batch({
             batchSize: 1000,
           }),
           processor,
@@ -800,12 +793,12 @@ export class EcleciaIndexer extends EclesiaEmitter {
     const readPromise = new Promise<boolean>((resolve, reject) => {
       try {
         const filters = path.split(".");
-        const pickers = filters.map(filter => pick({
+        const pickers = filters.map(filter => Pick.pick({
           filter,
         }));
 
         let counter = 0;
-        chain([this.readGenesis(), ...pickers, streamValues(), processor])
+        chain([this.readGenesis(), ...pickers, StreamValues.streamValues(), processor])
           .on("data",
             (_data) => {
               counter++;
@@ -885,7 +878,12 @@ export class EcleciaIndexer extends EclesiaEmitter {
       this.log.info("Finished importing");
     }
     catch (e) {
-      await this.config.endTransaction(false);
+      try {
+        await this.config.endTransaction(false);
+      }
+      catch (dbe) {
+        this.log.error("Error ending transaction. Must be a DB error: " + dbe);
+      }
       this.log.error("Failed to import genesis");
       throw e;
     }

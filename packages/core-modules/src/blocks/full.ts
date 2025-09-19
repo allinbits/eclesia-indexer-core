@@ -1,16 +1,33 @@
-import { createHash } from "node:crypto";
-import fs from "node:fs";
+import {
+  createHash,
+} from "node:crypto";
+import * as fs from "node:fs";
 
-import { GeneratedType } from "@cosmjs/proto-signing";
-import { TxData } from "@cosmjs/tendermint-rpc";
-import { PgIndexer } from "@eclesia/basic-pg-indexer";
-import { EcleciaIndexer, Types } from "@eclesia/indexer-engine";
-import { Utils } from "@eclesia/indexer-engine";
-import { Tx } from "cosmjs-types/cosmos/tx/v1beta1/tx";
-import JSONbig from "json-bigint";
+import {
+  GeneratedType,
+} from "@cosmjs/proto-signing";
+import {
+  TxData,
+} from "@cosmjs/tendermint-rpc";
+import {
+  PgIndexer,
+} from "@eclesia/basic-pg-indexer";
+import {
+  EcleciaIndexer, Types,
+} from "@eclesia/indexer-engine";
+import {
+  Utils,
+} from "@eclesia/indexer-engine";
+import {
+  Tx,
+} from "cosmjs-types/cosmos/tx/v1beta1/tx.js";
+import {
+  JSONStringify,
+} from "json-with-bigint";
 
-import { calculateGas } from "./helpers";
-
+import {
+  calculateGas,
+} from "./helpers.js";
 
 export class FullBlocksModule implements Types.IndexingModule {
   indexer!: EcleciaIndexer;
@@ -30,39 +47,38 @@ export class FullBlocksModule implements Types.IndexingModule {
   }
 
   async setup() {
-
     await this.pgIndexer.beginTransaction();
-    const client = this.pgIndexer.getInstance();          
+    const client = this.pgIndexer.getInstance();
     const exists = await client.query(
-      "SELECT EXISTS ( SELECT FROM pg_tables WHERE  schemaname = 'public' AND tablename  = 'blocks')"
+      "SELECT EXISTS ( SELECT FROM pg_tables WHERE  schemaname = 'public' AND tablename  = 'blocks')",
     );
     if (!exists.rows[0].exists) {
-      this.indexer.log.warn("Database not configured");    
+      this.indexer.log.warn("Database not configured");
       const base = fs.readFileSync(__dirname + "/./sql/full.sql").toString();
       try {
         await client.query(base);
         this.indexer.log.info("DB has been set up");
         await this.pgIndexer.endTransaction(true);
-      } catch (e) {
+      }
+      catch (e) {
         await this.pgIndexer.endTransaction(false);
         throw new Error("" + e);
-      } 
-    } else {
+      }
+    }
+    else {
       await this.pgIndexer.endTransaction(true);
     }
   }
 
   init(pgIndexer: PgIndexer): void {
-
     this.pgIndexer = pgIndexer;
     this.indexer = pgIndexer.indexer;
     const registryMap: Map<string, (typeof this.registry)[0][1]> = new Map();
     for (let i = 0; i < this.registry.length; i++) {
       registryMap.set(this.registry[i][0], this.registry[i][1]);
     }
-  
-  
-    this.indexer.on("block", async(event): Promise<void> => {
+
+    this.indexer.on("block", async (event): Promise<void> => {
       const block = event.value.block;
       const block_results = event.value.block_results;
       const db = this.pgIndexer.getInstance();
@@ -75,10 +91,10 @@ export class FullBlocksModule implements Types.IndexingModule {
           block.block.txs.length,
           calculateGas(block_results).toString(),
           Utils.chainAddressfromKeyhash(
-            (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", Buffer.from(block.block.header.proposerAddress).toString("hex")
+            (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", Buffer.from(block.block.header.proposerAddress).toString("hex"),
           ),
-          block.block.header.time
-        ]
+          block.block.header.time,
+        ],
       });
       for (let i = 0; i < block.block.txs.length; i++) {
         const txraw = block.block.txs[i];
@@ -88,33 +104,32 @@ export class FullBlocksModule implements Types.IndexingModule {
           await this.saveTransaction(txHash, event.height, tx, block_results.results[i], registryMap);
         }
       }
-      this.indexer.log.silly("Value passed to blocks indexing module: " + JSONbig.stringify(event.value));
-    
+      this.indexer.log.silly("Value passed to blocks indexing module: " + JSONStringify(event.value));
     });
 
-    this.indexer.on("periodic/100", async(event) => {
+    this.indexer.on("periodic/100", async (event) => {
       if (event.timestamp && event.height) {
         const dt = new Date(event.timestamp);
         const blockMinAgo = await this.getBlockHeightTimeMinuteAgo(event.timestamp);
         if (blockMinAgo) {
-          const blockTimeMinute =
-          (event.height - blockMinAgo.height) * 1000 /
-          (dt.getTime() - new Date(blockMinAgo.timestamp).getTime());
+          const blockTimeMinute
+            = (event.height - blockMinAgo.height) * 1000
+              / (dt.getTime() - new Date(blockMinAgo.timestamp).getTime());
           await this.updateBlockTimeMinuteAgo(1 / blockTimeMinute, event.height);
         }
-        const blockHourAgo = await this.getBlockHeightTimeHourAgo( event.timestamp);
+        const blockHourAgo = await this.getBlockHeightTimeHourAgo(event.timestamp);
         if (blockHourAgo) {
-          const blockTimeHour =
-          (event.height - blockHourAgo.height) * 1000 /
-          (dt.getTime() - new Date(blockHourAgo.timestamp).getTime());
-          await this.updateBlockTimeHourAgo( 1 / blockTimeHour, event.height);
+          const blockTimeHour
+            = (event.height - blockHourAgo.height) * 1000
+              / (dt.getTime() - new Date(blockHourAgo.timestamp).getTime());
+          await this.updateBlockTimeHourAgo(1 / blockTimeHour, event.height);
         }
-        const blockDayAgo = await this.getBlockHeightTimeDayAgo( event.timestamp);
+        const blockDayAgo = await this.getBlockHeightTimeDayAgo(event.timestamp);
         if (blockDayAgo) {
-          const blockTimeDay =
-          (event.height - blockDayAgo.height) * 1000 /
-          (dt.getTime() - new Date(blockDayAgo.timestamp).getTime());
-          await this.updateBlockTimeDayAgo( 1 / blockTimeDay, event.height);
+          const blockTimeDay
+            = (event.height - blockDayAgo.height) * 1000
+              / (dt.getTime() - new Date(blockDayAgo.timestamp).getTime());
+          await this.updateBlockTimeDayAgo(1 / blockTimeDay, event.height);
         }
       }
     });
@@ -123,11 +138,12 @@ export class FullBlocksModule implements Types.IndexingModule {
   async getBlockHeightTime(dt: Date) {
     const db = this.pgIndexer.getInstance();
     const block = await db.query(
-      "SELECT * FROM blocks WHERE blocks.timestamp <= $1 ORDER BY blocks.timestamp DESC LIMIT 1;", [dt]
+      "SELECT * FROM blocks WHERE blocks.timestamp <= $1 ORDER BY blocks.timestamp DESC LIMIT 1;", [dt],
     );
     if (block.rowCount && block.rowCount > 0) {
       return block.rows[0];
-    } else {
+    }
+    else {
       return null;
     }
   }
@@ -154,26 +170,23 @@ export class FullBlocksModule implements Types.IndexingModule {
   }
 
   async updateBlockTimeMinuteAgo(blocktime: number, height: number) {
-  
     const db = this.pgIndexer.getInstance();
     await db.query(
-      "INSERT INTO average_block_time_per_minute(average_time, height) VALUES ($1, $2) ON CONFLICT (one_row_id) DO UPDATE SET average_time = excluded.average_time, height = excluded.height WHERE average_block_time_per_minute.height <= excluded.height", [blocktime, height]
+      "INSERT INTO average_block_time_per_minute(average_time, height) VALUES ($1, $2) ON CONFLICT (one_row_id) DO UPDATE SET average_time = excluded.average_time, height = excluded.height WHERE average_block_time_per_minute.height <= excluded.height", [blocktime, height],
     );
   }
 
   async updateBlockTimeHourAgo(blocktime: number, height: number) {
-  
     const db = this.pgIndexer.getInstance();
     await db.query(
-      "INSERT INTO average_block_time_per_hour(average_time, height) VALUES ($1, $2) ON CONFLICT (one_row_id) DO UPDATE SET average_time = excluded.average_time, height = excluded.height WHERE average_block_time_per_hour.height <= excluded.height", [blocktime, height]
+      "INSERT INTO average_block_time_per_hour(average_time, height) VALUES ($1, $2) ON CONFLICT (one_row_id) DO UPDATE SET average_time = excluded.average_time, height = excluded.height WHERE average_block_time_per_hour.height <= excluded.height", [blocktime, height],
     );
   }
 
   async updateBlockTimeDayAgo(blocktime: number, height: number) {
-  
     const db = this.pgIndexer.getInstance();
     await db.query(
-      "INSERT INTO average_block_time_per_day(average_time, height) VALUES ($1, $2) ON CONFLICT (one_row_id) DO UPDATE SET average_time = excluded.average_time, height = excluded.height WHERE average_block_time_per_day.height <= excluded.height", [blocktime, height]
+      "INSERT INTO average_block_time_per_day(average_time, height) VALUES ($1, $2) ON CONFLICT (one_row_id) DO UPDATE SET average_time = excluded.average_time, height = excluded.height WHERE average_block_time_per_day.height <= excluded.height", [blocktime, height],
     );
   }
 
@@ -182,7 +195,7 @@ export class FullBlocksModule implements Types.IndexingModule {
     height: number,
     tx: Tx,
     txdata: TxData,
-    registryMap: Map<string, GeneratedType>
+    registryMap: Map<string, GeneratedType>,
   ) {
     const db = this.pgIndexer.getInstance();
     await db.query({
@@ -192,7 +205,7 @@ export class FullBlocksModule implements Types.IndexingModule {
         txHash.toUpperCase(),
         height,
         txdata.code == 0,
-        JSONbig.stringify(
+        JSONStringify(
           tx.body?.messages.map((x) => {
             const msgtype = registryMap.get(x.typeUrl);
             if (msgtype) {
@@ -200,10 +213,11 @@ export class FullBlocksModule implements Types.IndexingModule {
               msg["@type"] = x.typeUrl;
 
               return msg;
-            } else {
+            }
+            else {
               return x;
             }
-          })
+          }),
         ),
         tx.body?.memo,
         tx.signatures,
@@ -213,8 +227,8 @@ export class FullBlocksModule implements Types.IndexingModule {
         txdata.gasUsed,
         // eslint-disable-next-line no-control-regex
         txdata.log?.replace(/\u0000/g, ""),
-        JSON.stringify(Utils.toPlainObject(txdata.events))
-      ]
+        JSON.stringify(Utils.toPlainObject(txdata.events)),
+      ],
     });
   }
 }

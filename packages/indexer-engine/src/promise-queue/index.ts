@@ -176,6 +176,7 @@ export class CircularBuffer<T> {
     });
     this.items = new Array<Promise<T>>(this.batchSize);
     this.items[this.nextAvail] = nextVal;
+    this.synced = false;
     this.count = 1;
     this.nextAvail++;
     if (this.nextAvail >= this.batchSize) {

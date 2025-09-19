@@ -1,8 +1,10 @@
-import EventEmitter from "events";
+import {
+  EventEmitter,
+} from "node:events";
 
 import {
   WithHeightAndUUID,
-} from "../types";
+} from "../types/index.js";
 
 export class EclesiaEmitter {
   private emitter = new EventEmitter();

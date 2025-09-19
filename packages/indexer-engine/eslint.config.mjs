@@ -1,3 +1,7 @@
+import {
+  resolve,
+} from "node:path";
+
 import eslint from "@eslint/js";
 import stylistic from "@stylistic/eslint-plugin";
 import simpleImportSort from "eslint-plugin-simple-import-sort";
@@ -20,6 +24,13 @@ export default tseslint.config([
   eslint.configs.recommended,
   tseslint.configs.recommended,
   stylistic.configs.customize(),
+  {
+    languageOptions: {
+      parserOptions: {
+        tsconfigRootDir: resolve(),
+      },
+    },
+  },
   {
     rules: {
       "@stylistic/array-element-newline": [

@@ -1,71 +1,95 @@
-import pluginJs from "@eslint/js";
-import stylisticTs from "@stylistic/eslint-plugin-ts";
+import {
+  resolve,
+} from "node:path";
+
+import eslint from "@eslint/js";
+import stylistic from "@stylistic/eslint-plugin";
 import simpleImportSort from "eslint-plugin-simple-import-sort";
 import tseslint from "typescript-eslint";
-
-/** @type {import('eslint').Linter.Config[]} */
-export default [
+export default tseslint.config([
   {
     name: "app/files-to-lint",
-    files: ["**/*.{ts,mts,tsx}"]
+    files: ["**/*.{ts,mts,tsx,js,mjs}", "eslint.config.mjs"],
   },
-
   {
     name: "app/files-to-ignore",
-    ignores: ["**/lib/**", "**/dist-ssr/**", "**/dist/**", "**/coverage/**", "**/*.js"]
+    ignores: ["**/lib/**", "**/dist-ssr/**", "**/dist/**", "**/coverage/**"],
   },
   {
     plugins: {
-      "@stylistic/ts": stylisticTs
-    }
+      "@stylistic": stylistic,
+    },
   },
-  pluginJs.configs.recommended,
-  ...tseslint.configs.recommended,
-  stylisticTs.configs["all"],
+
+  eslint.configs.recommended,
+  tseslint.configs.recommended,
+  stylistic.configs.customize(),
+  {
+    languageOptions: {
+      parserOptions: {
+        tsconfigRootDir: resolve(),
+      },
+    },
+  },
   {
     rules: {
-      "@stylistic/ts/indent": ["error", 2],
-      "@stylistic/ts/quote-props": ["error", "as-needed"],
-      "@stylistic/ts/block-spacing": ["error", "always"],
-      "@stylistic/ts/object-curly-spacing": ["error", "always"],
-      "@/function-call-argument-newline": ["error", "never"],
-      "@stylistic/ts/semi": ["error", "always"],
-      "@stylistic/ts/quotes": ["error", "double"],
-      "@/no-multi-spaces": "error",
-      "@stylistic/ts/space-before-function-paren": ["error", "never"],
-      "@stylistic/ts/comma-spacing": ["error", { before: false,
-        after: true }],
-      "no-unused-vars": "off",
+      "@stylistic/array-element-newline": [
+        "error",
+        {
+          multiline: true,
+        },
+      ],
+      "@stylistic/array-bracket-newline": [
+        "error",
+        {
+          multiline: true,
+        },
+      ],
+      "@stylistic/object-curly-newline": ["error", "always"],
+      "@stylistic/object-curly-spacing": ["error", "always"],
+      "@stylistic/object-property-newline": "error",
+      "@stylistic/indent": ["error", 2],
+      "@stylistic/quote-props": ["error", "as-needed"],
+      "@stylistic/block-spacing": ["error", "always"],
+      "@stylistic/semi": ["error", "always"],
+      "@stylistic/quotes": ["error", "double"],
       "@typescript-eslint/no-unused-vars": [
         "error", // or "error"
         {
           argsIgnorePattern: "^_",
           varsIgnorePattern: "^_",
-          caughtErrorsIgnorePattern: "^_"
-        }
+          caughtErrorsIgnorePattern: "^_",
+        },
       ],
       "max-lines": [
         "warn",
-        { max: 650,
+        {
+          max: 700,
           skipBlankLines: true,
-          skipComments: true }
+          skipComments: true,
+        },
       ],
       "max-lines-per-function": [
         "warn",
-        { max: 200,
+        {
+          max: 350,
           skipBlankLines: true,
-          skipComments: true }
-      ]
-    }
+          skipComments: true,
+        },
+      ],
+    },
   },
   {
     plugins: {
-      "simple-import-sort": simpleImportSort
+      "simple-import-sort": simpleImportSort,
     },
     rules: {
       "simple-import-sort/imports": "error",
-      "simple-import-sort/exports": "error"
-    }
-  }
-  
-];
+      "simple-import-sort/exports": "error",
+    },
+  },
+  {
+    ignores: ["node_modules/*", "dist/*"],
+  },
+],
+);

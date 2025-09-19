@@ -1,4 +1,6 @@
-import { BlockResultsResponse } from "@cosmjs/tendermint-rpc";
+import {
+  BlockResultsResponse,
+} from "@cosmjs/tendermint-rpc";
 
 const calculateGas = (block: BlockResultsResponse): bigint => {
   return block.results.reduce((gas, result) => {
@@ -6,4 +8,6 @@ const calculateGas = (block: BlockResultsResponse): bigint => {
   }, 0n);
 };
 
-export { calculateGas };
+export {
+  calculateGas,
+};

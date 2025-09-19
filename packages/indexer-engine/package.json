@@ -1,50 +1,70 @@
 {
   "name": "@eclesia/indexer-engine",
-  "version": "2.6.3",
+  "version": "2.8.0",
   "description": "Core eclesia indexer engine",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc --noEmit && tsdown",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "test": "vitest"
+    "test": "vitest",
+    "start": "node dist/index.mjs"
   },
   "files": [
     "dist/",
     "scripts/",
     "templates"
   ],
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
   "keywords": [],
   "contributors": [
     "Alex M.<alex.megalokonomos@tendermint.com>"
   ],
   "license": "Apache-2.0",
   "devDependencies": {
-    "@eslint/js": "^9.24.0",
+    "@arethetypeswrong/core": "^0.18.2",
+    "@eslint/js": "^9.35.0",
     "@stylistic/eslint-plugin": "^5.3.1",
     "@types/node": "^22.14.0",
     "@types/stream-chain": "^2.1.0",
     "@types/stream-json": "^1.7.8",
-    "@types/uuid": "^10.0.0",
-    "eslint": "^9.24.0",
+    "@types/uuid": "^11.0.0",
+    "eslint": "^9.35.0",
     "eslint-plugin-simple-import-sort": "^12.1.1",
-    "typescript": "^5.8.3",
-    "typescript-eslint": "^8.29.0",
-    "vitest": "^3.1.1"
+    "tsdown": "^0.15.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.44.0",
+    "vitest": "^3.2.4"
   },
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
-    "@cosmjs/tendermint-rpc": "^0.33.1",
+    "@cosmjs/tendermint-rpc": "^0.36.0",
     "bech32": "^2.0.0",
-    "cosmjs-types": "^0.9.0",
-    "dayjs": "^1.11.13",
-    "fastify": "^5.2.2",
+    "cosmjs-types": "^0.10.1",
+    "dayjs": "^1.11.18",
+    "fastify": "^5.6.0",
     "stream-chain": "^3.4.0",
     "stream-json": "^1.9.1",
-    "uuid": "^11.1.0",
+    "uuid": "^13.0.0",
     "winston": "^3.17.0"
+  },
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.cts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
   }
 }

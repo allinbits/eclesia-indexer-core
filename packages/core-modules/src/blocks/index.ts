@@ -1,2 +1,6 @@
-export { FullBlocksModule } from "./full";
-export { MinimalBlocksModule } from "./minimal";
+export {
+  FullBlocksModule,
+} from "./full.js";
+export {
+  MinimalBlocksModule,
+} from "./minimal.js";

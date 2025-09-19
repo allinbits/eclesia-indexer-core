@@ -1,27 +1,32 @@
-import { EcleciaIndexer } from "@eclesia/indexer-engine";
-import { IndexingModule } from "@eclesia/indexer-engine/dist/types";
-import { toPlainObject } from "@eclesia/indexer-engine/dist/utils";
-import { Client } from "pg";
+import {
+  EcleciaIndexer,
+} from "@eclesia/indexer-engine";
+import {
+  Types, Utils,
+} from "@eclesia/indexer-engine";
+import {
+  Client,
+} from "pg";
 
 export type PgIndexerConfig = {
-  startHeight: number;
-  batchSize: number;
-  modules: string[];
-  rpcUrl: string;   
-  logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly";
-  usePolling: boolean;
-  processGenesis?: boolean;
-  pollingInterval: number;
-  minimal: boolean;
-  genesisPath?: string;
-  dbConnectionString: string;
+  startHeight: number
+  batchSize: number
+  modules: string[]
+  rpcUrl: string
+  logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly"
+  usePolling: boolean
+  processGenesis?: boolean
+  pollingInterval: number
+  minimal: boolean
+  genesisPath?: string
+  dbConnectionString: string
 };
 
 export class PgIndexer {
-
   private db!: Client;
 
-  public modules: Record<string, IndexingModule> = {};
+  public modules: Record<string, Types.IndexingModule> = {
+  };
 
   private instanceConnected: boolean = false;
 
@@ -31,30 +36,33 @@ export class PgIndexer {
 
   private clientReuse: number = 0;
 
-  static withModules(config: PgIndexerConfig, modules: IndexingModule[]) {
+  static withModules(config: PgIndexerConfig, modules: Types.IndexingModule[]) {
     const pgIndexer = new PgIndexer(config);
     pgIndexer.addModules(modules);
     return pgIndexer;
   }
 
-  constructor(config: PgIndexerConfig, modules: IndexingModule[] = []) {
+  constructor(config: PgIndexerConfig, modules: Types.IndexingModule[] = []) {
     this.config = config;
 
     this.db = new Client(config.dbConnectionString);
     this.db.on("end", () => {
+      this.indexer.log.warn("Database client disconnected");
       this.instanceConnected = false;
-    }
+    },
     );
     this.db.on("error", (err) => {
       this.indexer.log.error("Error in db: " + err);
     });
-    this.indexer = new EcleciaIndexer({ ...config,
+    this.indexer = new EcleciaIndexer({
+      ...config,
       getNextHeight: this.getNextHeight.bind(this),
       beginTransaction: this.beginTransaction.bind(this),
-      endTransaction: this.endTransaction.bind(this) });
+      endTransaction: this.endTransaction.bind(this),
+    });
     this.indexer.log.info("Indexer instantiated");
-   
-    for (let i = 0; i < modules.length; i++) {      
+
+    for (let i = 0; i < modules.length; i++) {
       this.indexer.log.verbose("Module " + modules[i].name + " initializing");
       modules[i].init(this);
       this.indexer.log.info("Module " + modules[i].name + " initialized");
@@ -62,8 +70,8 @@ export class PgIndexer {
     }
   }
 
-  public addModules(modules: IndexingModule[]) {        
-    for (let i = 0; i < modules.length; i++) {      
+  public addModules(modules: Types.IndexingModule[]) {
+    for (let i = 0; i < modules.length; i++) {
       this.indexer.log.verbose("Module " + modules[i].name + " initializing");
       modules[i].init(this);
       this.indexer.log.info("Module " + modules[i].name + " initialized");
@@ -87,13 +95,20 @@ export class PgIndexer {
 
   public async getNextHeight() {
     try {
+      if (!this.instanceConnected) {
+        this.db = new Client(this.config.dbConnectionString);
+        await this.db.connect();
+        this.instanceConnected = true;
+      }
       const res = await this.db.query("SELECT * FROM blocks ORDER BY height DESC LIMIT 1");
       if (res.rowCount != 0) {
         return Number(res.rows[0].height) + 1;
-      } else {
+      }
+      else {
         return this.config.startHeight;
-      } 
-    } catch (e) {
+      }
+    }
+    catch (e) {
       this.indexer.log.error("Error fetching latest height processed: " + e);
       throw e;
     }
@@ -107,7 +122,8 @@ export class PgIndexer {
       }
       await this.db.query("BEGIN");
       this.indexer.log.silly("Transaction started");
-    } catch (e) {
+    }
+    catch (e) {
       this.indexer.log.error("Error beginning transaction: " + e);
       throw e;
     }
@@ -118,14 +134,17 @@ export class PgIndexer {
       if (status) {
         await this.db.query("COMMIT");
         this.indexer.log.silly("Transaction committed");
-      } else {
+      }
+      else {
         await this.db.query("ROLLBACK");
         this.indexer.log.silly("Transaction rolled back");
       }
-    } catch (e) {
+    }
+    catch (e) {
       this.indexer.log.error("Error ending transaction: " + e);
       throw e;
-    } finally {
+    }
+    finally {
       this.clientReuse++;
       if (this.clientReuse >= 1500) {
         this.indexer.log.info("Recycling database client");
@@ -133,7 +152,7 @@ export class PgIndexer {
         this.db = new Client(this.config.dbConnectionString);
         this.db.on("end", () => {
           this.instanceConnected = false;
-        }
+        },
         );
         this.db.on("error", (err) => {
           this.indexer.log.error("Error in db: " + err);
@@ -146,21 +165,23 @@ export class PgIndexer {
   }
 
   public getInstance(): Client {
-     
     if (this.config.logLevel !== "silly") {
       return this.db;
-    } else {
+    }
+    else {
       // eslint-disable-next-line @typescript-eslint/no-this-alias
-      const self = this;    
-      return { ...self.db,
-        query: async(...args: Parameters<Client["query"]>): Promise<ReturnType<Client["query"]>> => {
+      const self = this;
+      return {
+        ...self.db,
+        query: async (...args: Parameters<Client["query"]>): Promise<ReturnType<Client["query"]>> => {
           const processStart = process.hrtime.bigint();
           const result = await self.db.query(...args);
           const processEnd = process.hrtime.bigint();
           const duration = Number(processEnd - processStart) / 1e6; // Convert to milliseconds
-          self.indexer.log.silly(`Query executed in ${duration.toFixed(3)} ms: ${JSON.stringify(toPlainObject(args))}`);
+          self.indexer.log.silly(`Query executed in ${duration.toFixed(3)} ms: ${JSON.stringify(Utils.toPlainObject(args))}`);
           return result;
-        } } as Client;
+        },
+      } as Client;
     }
   }
 }
