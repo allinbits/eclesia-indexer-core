@@ -14,7 +14,7 @@ export default defineConfig([
     clean: true,
     sourcemap: true,
     dts: true,
-    format: ["cjs"],    
+    format: ["cjs"],
     external: ["@eclesia/basic-pg-indexer", "@eclesia/indexer-engine"],
   },
   {

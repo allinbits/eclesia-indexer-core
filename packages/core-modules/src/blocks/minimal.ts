@@ -1,4 +1,8 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
+import {
+  fileURLToPath,
+} from "node:url";
 
 import {
   GeneratedType,
@@ -12,6 +16,9 @@ import {
 import {
   JSONStringify,
 } from "json-with-bigint";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export class MinimalBlocksModule implements Types.IndexingModule {
   indexer!: EcleciaIndexer;

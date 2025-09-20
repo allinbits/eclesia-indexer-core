@@ -1,4 +1,8 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
+import {
+  fileURLToPath,
+} from "node:url";
 
 import {
   GeneratedType,
@@ -20,6 +24,9 @@ import {
 import {
   BankModule,
 } from "../cosmos.bank.v1beta1/index.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export type Events = {
 

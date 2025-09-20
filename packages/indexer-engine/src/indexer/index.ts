@@ -32,11 +32,11 @@ import Fastify, {
 import {
   chain,
 } from "stream-chain";
-import * as Parser from "stream-json";
-import * as Pick from "stream-json/filters/Pick.js";
-import * as StreamArray from "stream-json/streamers/StreamArray.js";
-import * as StreamValues from "stream-json/streamers/StreamValues.js";
-import * as Batch from "stream-json/utils/Batch.js";
+import Parser from "stream-json";
+import Pick from "stream-json/filters/Pick.js";
+import StreamArray from "stream-json/streamers/StreamArray.js";
+import StreamValues from "stream-json/streamers/StreamValues.js";
+import Batch from "stream-json/utils/Batch.js";
 import {
   v4 as uuidv4,
 } from "uuid";
@@ -683,9 +683,12 @@ export class EcleciaIndexer extends EclesiaEmitter {
   private newBlockReceived(height: number): void {
     this.log.info("Received new block: %d",
       height);
-
+    if (height == this.latestHeight) {
+      return;
+    }
     // If we are synced, add to end of queue
     if (this.blockQueue.synced && !this.tryToRecover) {
+      this.latestHeight = height;
       if (this.blockQueue.size() + 1 == this.config.batchSize) {
         this.log.error("Block queue is full. Cannot add new block");
         this.tryToRecover = true;

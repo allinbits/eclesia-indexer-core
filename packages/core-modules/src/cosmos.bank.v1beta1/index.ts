@@ -1,4 +1,8 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
+import {
+  fileURLToPath,
+} from "node:url";
 
 import {
   parseCoins,
@@ -32,6 +36,9 @@ import {
 import {
   AuthModule,
 } from "../cosmos.auth.v1beta1/index.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export type Events = {
   "genesis/array/app_state.bank.balances": {

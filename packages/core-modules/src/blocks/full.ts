@@ -2,6 +2,10 @@ import {
   createHash,
 } from "node:crypto";
 import * as fs from "node:fs";
+import * as path from "node:path";
+import {
+  fileURLToPath,
+} from "node:url";
 
 import {
   GeneratedType,
@@ -28,6 +32,9 @@ import {
 import {
   calculateGas,
 } from "./helpers.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export class FullBlocksModule implements Types.IndexingModule {
   indexer!: EcleciaIndexer;
