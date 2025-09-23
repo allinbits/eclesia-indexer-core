@@ -91,7 +91,7 @@ export class FullBlocksModule implements Types.IndexingModule {
       const db = this.pgIndexer.getInstance();
       await db.query({
         name: "add-block",
-        text: "INSERT INTO blocks(height,hash,num_txs,total_gas, proposer_address, timestamp) VALUES ($1,$2,$3,$4,$5,$6)",
+        text: "INSERT INTO blocks(height,hash,num_txs,total_gas, proposer_address, timestamp,signed_by) VALUES ($1,$2,$3,$4,$5,$6,$7)",
         values: [
           block.block.header.height,
           Buffer.from(block.blockId.hash).toString("hex"),
@@ -101,6 +101,14 @@ export class FullBlocksModule implements Types.IndexingModule {
             (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", Buffer.from(block.block.header.proposerAddress).toString("hex"),
           ),
           block.block.header.time,
+          JSONStringify(block.block.lastCommit?.signatures.map((x) => {
+            return {
+              validator: Utils.chainAddressfromKeyhash(
+                (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", Buffer.from(x.validatorAddress ?? new Uint8Array()).toString("hex"),
+              ),
+              block_id: x.blockIdFlag,
+            };
+          }) ?? []),
         ],
       });
       for (let i = 0; i < block.block.txs.length; i++) {

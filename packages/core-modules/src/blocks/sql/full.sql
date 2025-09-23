@@ -6,6 +6,7 @@ CREATE TABLE blocks
     num_txs          INTEGER DEFAULT 0,
     total_gas        BIGINT  DEFAULT 0,
     proposer_address TEXT,
+    signed_by        JSONB   NOT NULL DEFAULT '[]'::JSONB,
     timestamp        TIMESTAMP WITHOUT TIME ZONE NOT NULL
 );
 CREATE INDEX block_height_index ON blocks (height);
