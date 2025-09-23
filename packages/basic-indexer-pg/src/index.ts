@@ -1,3 +1,4 @@
+/* eslint-disable @stylistic/no-multi-spaces */
 import {
   EcleciaIndexer,
 } from "@eclesia/indexer-engine";
@@ -8,43 +9,66 @@ import {
   Client,
 } from "pg";
 
+/** Configuration options for the PostgreSQL indexer */
 export type PgIndexerConfig = {
-  startHeight: number
-  batchSize: number
-  modules: string[]
-  rpcUrl: string
-  logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly"
-  usePolling: boolean
-  processGenesis?: boolean
-  pollingInterval: number
-  minimal: boolean
-  genesisPath?: string
-  dbConnectionString: string
+  startHeight: number                        // Block height to start indexing from
+  batchSize: number                          // Number of blocks to keep pre-fetched when syncing
+  modules: string[]                          // List of module names to enable
+  rpcUrl: string                             // Tendermint RPC endpoint URL
+  logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly" // Logging verbosity
+  usePolling: boolean                        // Whether to use polling vs WebSocket subscription
+  processGenesis?: boolean                   // Whether to process genesis state
+  pollingInterval: number                    // Interval between polls (ms) when using polling
+  minimal: boolean                           // Whether to use minimal indexing (blocks only)
+  genesisPath?: string                       // Path to genesis file for processing
+  dbConnectionString: string                 // PostgreSQL connection string
 };
 
+/**
+ * PostgreSQL-based blockchain indexer that orchestrates data collection and storage
+ * Manages database connections, transactions, and indexing modules
+ */
 export class PgIndexer {
+  /** PostgreSQL client instance */
   private db!: Client;
 
+  /** Registry of active indexing modules */
   public modules: Record<string, Types.IndexingModule> = {
   };
 
+  /** Database connection status flag */
   private instanceConnected: boolean = false;
 
+  /** Indexer configuration */
   private config: PgIndexerConfig;
 
+  /** Core indexer engine instance */
   public indexer: EcleciaIndexer;
 
+  /** Counter for database client recycling to prevent connection issues */
   private clientReuse: number = 0;
 
+  /**
+   * Factory method to create a PgIndexer instance with modules
+   * @param config - Indexer configuration
+   * @param modules - Array of indexing modules to install
+   * @returns Configured PgIndexer instance
+   */
   static withModules(config: PgIndexerConfig, modules: Types.IndexingModule[]) {
     const pgIndexer = new PgIndexer(config);
     pgIndexer.addModules(modules);
     return pgIndexer;
   }
 
+  /**
+   * Creates a new PostgreSQL indexer instance
+   * @param config - Indexer configuration
+   * @param modules - Optional array of indexing modules to install immediately
+   */
   constructor(config: PgIndexerConfig, modules: Types.IndexingModule[] = []) {
     this.config = config;
 
+    // Initialize PostgreSQL client with connection string
     this.db = new Client(config.dbConnectionString);
     this.db.on("end", () => {
       this.indexer.log.warn("Database client disconnected");
@@ -54,6 +78,8 @@ export class PgIndexer {
     this.db.on("error", (err) => {
       this.indexer.log.error("Error in db: " + err);
     });
+
+    // Initialize core indexer engine with database callbacks
     this.indexer = new EcleciaIndexer({
       ...config,
       getNextHeight: this.getNextHeight.bind(this),
@@ -62,6 +88,7 @@ export class PgIndexer {
     });
     this.indexer.log.info("Indexer instantiated");
 
+    // Initialize any modules provided in constructor
     for (let i = 0; i < modules.length; i++) {
       this.indexer.log.verbose("Module " + modules[i].name + " initializing");
       modules[i].init(this);
@@ -70,6 +97,10 @@ export class PgIndexer {
     }
   }
 
+  /**
+   * Adds indexing modules to the running indexer
+   * @param modules - Array of indexing modules to add
+   */
   public addModules(modules: Types.IndexingModule[]) {
     for (let i = 0; i < modules.length; i++) {
       this.indexer.log.verbose("Module " + modules[i].name + " initializing");
@@ -79,32 +110,49 @@ export class PgIndexer {
     }
   }
 
+  /**
+   * Starts the indexer by connecting to RPC and beginning block processing
+   */
   public async run() {
     await this.indexer.connect();
     await this.indexer.start();
   }
 
+  /**
+   * Sets up the indexer by connecting to RPC and initializing all modules
+   * This should be called before run() to ensure proper database schema setup
+   */
   async setup() {
     await this.indexer.connect();
     this.indexer.log.info("Connected to RPC");
+    // Initialize database schemas for all modules
     for (const indexingModule in this.modules) {
       this.indexer.log.verbose("Module " + indexingModule + " setting up");
       await this.modules[indexingModule].setup();
     }
   }
 
+  /**
+   * Determines the next block height to process by querying the database
+   * Returns the configured start height if no blocks are found in the database
+   * @returns The next block height to process
+   */
   public async getNextHeight() {
     try {
+      // Ensure database connection is active
       if (!this.instanceConnected) {
         this.db = new Client(this.config.dbConnectionString);
         await this.db.connect();
         this.instanceConnected = true;
       }
+
+      // Query for the highest block height in the database
       const res = await this.db.query("SELECT * FROM blocks ORDER BY height DESC LIMIT 1");
       if (res.rowCount != 0) {
         return Number(res.rows[0].height) + 1;
       }
       else {
+        // No blocks found, start from configured height
         return this.config.startHeight;
       }
     }
@@ -114,8 +162,13 @@ export class PgIndexer {
     }
   }
 
+  /**
+   * Begins a PostgreSQL transaction for atomic block processing
+   * Ensures database connection is active before starting transaction
+   */
   public async beginTransaction() {
     try {
+      // Ensure database connection is active
       if (!this.instanceConnected) {
         await this.db.connect();
         this.instanceConnected = true;
@@ -129,6 +182,11 @@ export class PgIndexer {
     }
   }
 
+  /**
+   * Ends a PostgreSQL transaction by committing or rolling back
+   * Includes database client recycling to prevent connection issues
+   * @param status - true to commit, false to rollback
+   */
   public async endTransaction(status: boolean) {
     try {
       if (status) {
@@ -145,6 +203,7 @@ export class PgIndexer {
       throw e;
     }
     finally {
+      // Database client recycling to prevent long-running connection issues
       this.clientReuse++;
       if (this.clientReuse >= 1500) {
         this.indexer.log.info("Recycling database client");
@@ -164,11 +223,17 @@ export class PgIndexer {
     }
   }
 
+  /**
+   * Returns a PostgreSQL client instance with optional query timing
+   * When log level is 'silly', wraps queries with performance monitoring
+   * @returns PostgreSQL client instance
+   */
   public getInstance(): Client {
     if (this.config.logLevel !== "silly") {
       return this.db;
     }
     else {
+      // Create a proxy client that logs query performance
       // eslint-disable-next-line @typescript-eslint/no-this-alias
       const self = this;
       return {

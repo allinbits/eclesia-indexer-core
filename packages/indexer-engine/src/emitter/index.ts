@@ -6,13 +6,24 @@ import {
   WithHeightAndUUID,
 } from "../types/index.js";
 
+/**
+ * Custom event emitter that provides type-safe event handling for blockchain indexing
+ * Extends Node.js EventEmitter with UUID tracking and error handling capabilities
+ */
 export class EclesiaEmitter {
+  /** Internal Node.js EventEmitter instance */
   private emitter = new EventEmitter();
 
+  /** Map tracking the number of handlers registered for each event type */
   public handled = new Map<string, number>();
 
+  /** WeakMap storing wrapper functions for proper cleanup */
   private handlerMap = new WeakMap();
 
+  /**
+   * Creates a new EclesiaEmitter instance
+   * Sets max listeners to 0 (unlimited) to handle many modules
+   */
   constructor() {
     this.emitter.setMaxListeners(0);
   }

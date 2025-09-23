@@ -58,6 +58,7 @@ import {
   BankModule,
 } from "../cosmos.bank.v1beta1/index.js";
 
+/** Events emitted by the Staking module for various staking operations */
 export type Events = {
   "/cosmos.staking.v1beta1.MsgEditValidator": {
     value: Types.TxResult<Uint8Array>
@@ -96,31 +97,41 @@ import {
   fileURLToPath,
 } from "node:url";
 
+// ESM compatibility for __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/** Cached validator information for performance optimization */
 export type CachedValidator = {
-  status: string
-  jailed: boolean
-  tokens: bigint
-  delegator_shares: BigNumber
+  status: string           // Validator bond status (bonded, unbonded, unbonding)
+  jailed: boolean          // Whether validator is jailed
+  tokens: bigint           // Total tokens delegated to validator
+  delegator_shares: BigNumber // Total shares issued by validator
 };
 
+/**
+ * Cosmos SDK Staking module indexer that tracks validators, delegations, and staking operations
+ * Handles validator creation, delegation changes, redelegations, and unbonding
+ */
 export class StakingModule implements Types.IndexingModule {
   indexer!: EcleciaIndexer;
 
   private pgIndexer!: PgIndexer;
 
+  /** Registry of protobuf message types for decoding */
   private registry: [string, GeneratedType][];
 
   public name: string = "cosmos.staking.v1beta1";
 
+  /** Depends on auth module for account management */
   public depends: string[] = ["cosmos.auth.v1beta1"];
 
   public provides: string[] = ["cosmos.staking.v1beta1"];
 
+  /** Cache mapping operator addresses to consensus addresses */
   public validatorAddressCache = new Map<string, string>();
 
+  /** Cache of validator status and delegation information */
   public validatorCache = new Map<string, CachedValidator>();
 
   constructor(registry: [string, GeneratedType][]) {

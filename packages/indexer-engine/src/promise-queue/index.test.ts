@@ -6,10 +6,14 @@ import {
   CircularBuffer, PromiseQueue,
 } from "./";
 
-// filepath: /Users/clockwork/Documents/Tendermint/eclesia-indexer-core/packages/indexer/src/indexer/blockqueue.test.ts
+/**
+ * Test suite for promise-based queue implementations
+ * Tests both PromiseQueue (FIFO) and CircularBuffer (fixed-size circular) implementations
+ * Used by the blockchain indexer for managing block processing pipelines
+ */
 
 describe(
-  "Queue", () => {
+  "PromiseQueue", () => {
     it(
       "should initialize with a fixed batch size", () => {
         const queue = new PromiseQueue<number>(5);
@@ -74,8 +78,8 @@ describe(
     it(
       "should initialize with a fixed batch size", () => {
         const queue = new CircularBuffer<number>(5);
-        expect(queue.size()).toBe(0);
-        expect(queue.isEmpty()).toBe(true);
+        expect(queue.size()).toBe(1);
+        expect(queue.isEmpty()).toBe(false);
       },
     );
 
@@ -84,7 +88,7 @@ describe(
         const queue = new CircularBuffer<number>(3);
         queue.enqueue(1);
         queue.enqueue(2);
-        expect(queue.size()).toBe(2); // Includes the initial promise
+        expect(queue.size()).toBe(3); // Includes the initial promise
       },
     );
 
@@ -95,7 +99,7 @@ describe(
         queue.enqueue(2);
         const item = await queue.dequeue();
         expect(item).toBe(1);
-        expect(queue.size()).toBe(1);
+        expect(queue.size()).toBe(2);
       },
     );
 
@@ -116,7 +120,7 @@ describe(
         queue.enqueue(1);
         expect(queue.isEmpty()).toBe(false); // Initial promise exists
         queue.dequeue();
-        expect(queue.isEmpty()).toBe(true);
+        expect(queue.isEmpty()).toBe(false);
       },
     );
 

@@ -1,21 +1,26 @@
-/*
- *This implements an "infinite" FIFO queue of fixed size.
- *await `continue()` before enqueing items to ensure fixed size (as it only resolves when space available)
- *await `dequeue()` to pop an item  as it will only resolve if the next item is available
- *size() is always at minimum 1 item which is the promise that will resolve to the next item whenever it is enqueued
+/**
+ * Implements an "infinite" FIFO queue of fixed size using promises
+ * - await `continue()` before enqueing items to ensure fixed size (resolves when space available)
+ * - await `dequeue()` to pop an item (resolves when next item is available)
+ * - size() is always at minimum 1 item which is the promise for the next enqueued item
  */
-
 export class PromiseQueue<T> {
+  /** Array of promises representing queued items */
   private items: Array<Promise<T>>;
 
+  /** Function to resolve the next enqueued promise */
   private enqueuer!: (val: T | PromiseLike<T>) => void;
 
+  /** Function to resolve the continue promise when space is available */
   private batcher!: (val: boolean) => void;
 
+  /** Flag indicating if the queue is synced with the data source */
   public synced = false;
 
+  /** Maximum number of items to keep in the queue */
   private batchSize: number;
 
+  /** Promise that resolves when it's safe to enqueue more items */
   private continuePromise: Promise<boolean>;
 
   constructor(batchSize: number) {
@@ -90,23 +95,37 @@ export class PromiseQueue<T> {
   }
 }
 
+/**
+ * Circular buffer implementation using promises for efficient memory usage
+ * Reuses array slots in a circular fashion to maintain constant memory footprint
+ * Used by the indexer for managing block processing queues
+ */
 export class CircularBuffer<T> {
+  /** Fixed-size array of promises representing buffered items */
   private items: Array<Promise<T>>;
 
+  /** Function to resolve the next enqueued promise */
   private enqueuer!: (val: T | PromiseLike<T>) => void;
 
+  /** Current number of items in the buffer */
   private count: number = 0;
 
+  /** Index of the next item to dequeue */
   private next: number = 0;
 
+  /** Function to resolve the continue promise when space is available */
   private batcher!: (val: boolean) => void;
 
+  /** Flag indicating if the buffer is synced with the data source */
   public synced = false;
 
+  /** Maximum number of items the buffer can hold */
   private batchSize: number;
 
+  /** Promise that resolves when it's safe to enqueue more items */
   private continuePromise: Promise<boolean>;
 
+  /** Index of the next available slot for enqueueing */
   private nextAvail: number = 0;
 
   constructor(batchSize: number) {
@@ -162,7 +181,7 @@ export class CircularBuffer<T> {
     if (this.next >= this.batchSize) {
       this.next = 0;
     }
-    if (this.count < this.batchSize) {
+    if (this.count <= this.batchSize) {
       this.batcher(true);
     }
     return item;

@@ -56,60 +56,86 @@ import {
   decodeAttr,
 } from "../utils/index.js";
 
+/** Default configuration for the Eclesia indexer */
 export const defaultIndexerConfig = {
-  startHeight: 1,
-  batchSize: 500,
-  modules: [],
-  getNextHeight: () => 1,
-  logLevel: "info" as EcleciaIndexerConfig["logLevel"],
-  usePolling: false,
-  pollingInterval: 5000,
-  processGenesis: false,
-  minimal: true,
-  init: () => Promise.resolve(),
-  beginTransaction: () => Promise.resolve(),
-  endTransaction: (_status: boolean) => Promise.resolve(),
+  startHeight: 1,                                     // Start indexing from block 1
+  batchSize: 500,                                     // Process blocks in batches of 500
+  modules: [],                                        // No modules enabled by default
+  getNextHeight: () => 1,                            // Default height retrieval function
+  logLevel: "info" as EcleciaIndexerConfig["logLevel"], // Default log level
+  usePolling: false,                                  // Use WebSocket subscription by default
+  pollingInterval: 5000,                              // Poll every 5 seconds when polling enabled
+  processGenesis: false,                              // Skip genesis processing by default
+  minimal: true,                                      // Use minimal indexing by default
+  init: () => Promise.resolve(),                      // No-op initialization function
+  beginTransaction: () => Promise.resolve(),          // No-op transaction begin function
+  endTransaction: (_status: boolean) => Promise.resolve(), // No-op transaction end function
 };
 
+/**
+ * Core blockchain indexer that connects to Tendermint RPC and processes blocks
+ * Extends EclesiaEmitter to provide event-driven architecture for modules
+ */
 export class EcleciaIndexer extends EclesiaEmitter {
+  /** Indexer configuration settings */
   private config: EcleciaIndexerConfig;
 
+  /** Fastify HTTP server for health checks */
   private fastify: FastifyInstance;
 
+  /** Queue for managing block processing pipeline */
   private blockQueue: BlockQueue;
 
+  /** Latest block height from the chain */
   private latestHeight!: number;
 
+  /** Next block height to process */
   private heightToProcess!: number;
 
+  /** Whether the indexer has been initialized */
   private initialized = false;
 
+  /** Number of retry attempts for error recovery */
   private retryCount = 0;
 
+  /** CometBFT client for ad-hoc queries */
   public client!: CometClient;
 
+  /** CometBFT client for block and validator queries */
   public blockClient!: CometClient;
 
+  /** Winston logger instance */
   public log: winston.Logger;
 
+  /** Flag indicating if indexer should attempt recovery */
   private tryToRecover: boolean = false;
 
+  /** Health check status for monitoring */
   private healthCheck = {
     status: "CONNECTING",
   };
 
+  /** WebSocket subscription for new block notifications */
   private subscription: ReturnType<CometClient["subscribeNewBlock"]> | null = null;
 
+  /**
+   * Creates a new Eclesia indexer instance
+   * @param config - Indexer configuration options
+   */
   constructor(config: EcleciaIndexerConfig) {
     super();
     this.config = {
       ...defaultIndexerConfig,
       ...config,
     };
+
+    // Initialize block queue based on minimal or full indexing mode
     if (this.config.minimal) {
+      // Minimal mode: only store block and block results
       this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse]>(this.config.batchSize);
     }
     else {
+      // Full mode: also store validator information
       this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse, Uint8Array]>(this.config.batchSize);
     }
     const {

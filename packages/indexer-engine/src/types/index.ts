@@ -18,34 +18,44 @@ import {
   CircularBuffer,
 } from "../promise-queue";
 
+/** Configuration interface for the Eclesia indexer */
 export type EcleciaIndexerConfig = {
-  startHeight?: number
-  endHeight?: number
-  batchSize: number
-  modules: string[]
-  getNextHeight: () => number | PromiseLike<number>
-  logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly"
-  rpcUrl: string
-  processGenesis?: boolean
-  genesisPath?: string
-  usePolling?: boolean
-  pollingInterval?: number
-  minimal?: boolean
-  init?: () => Promise<void>
-  beginTransaction: () => Promise<void>
-  endTransaction: (status: boolean) => Promise<void>
+  startHeight?: number                                           // Block height to start indexing from
+  endHeight?: number                                             // Block height to stop indexing at (optional)
+  batchSize: number                                              // Number of blocks to process in parallel
+  modules: string[]                                              // List of module names to enable
+  getNextHeight: () => number | PromiseLike<number>             // Function to determine next block to process
+  logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly" // Logging verbosity level
+  rpcUrl: string                                                 // Tendermint RPC endpoint URL
+  processGenesis?: boolean                                       // Whether to process genesis state
+  genesisPath?: string                                           // Path to genesis file
+  usePolling?: boolean                                           // Use polling instead of WebSocket subscription
+  pollingInterval?: number                                       // Interval between polls in milliseconds
+  minimal?: boolean                                              // Use minimal indexing mode (blocks only)
+  init?: () => Promise<void>                                     // Custom initialization function
+  beginTransaction: () => Promise<void>                          // Function to begin database transaction
+  endTransaction: (status: boolean) => Promise<void>            // Function to end database transaction
 };
 
+/** Queue for full indexing mode with validator data */
 export type FullBlockQueue = CircularBuffer<[BlockResponse, BlockResultsResponse, Uint8Array]>;
+
+/** Queue for minimal indexing mode without validator data */
 export type MinimalBlockQueue = CircularBuffer<[BlockResponse, BlockResultsResponse]>;
+
+/** Union type for block queues */
 export type BlockQueue = FullBlockQueue | MinimalBlockQueue;
+
+/** Utility type to add height, timestamp, and UUID to event types */
 export type WithHeightAndUUID<T> = {
   [K in keyof T]: T[K] & {
-    uuid?: string
-    height?: number
-    timestamp?: string
+    uuid?: string      // Unique identifier for event tracking
+    height?: number    // Block height when event occurred
+    timestamp?: string // Block timestamp when event occurred
   };
 };
+
+/** Function signature for emitting events asynchronously */
 export type EmitFunc<K extends keyof WithHeightAndUUID<EventMap>> = (
   t: K,
   e: WithHeightAndUUID<EventMap>[K]
@@ -107,12 +117,13 @@ export type TxResult<T> = {
   events: Event[]
 };
 
+/** Interface that all indexing modules must implement */
 export interface IndexingModule {
-  indexer: EcleciaIndexer
-  name: string
-  depends: string[]
-  provides: string[]
-  setup: () => Promise<void>
+  indexer: EcleciaIndexer                    // Reference to the main indexer instance
+  name: string                               // Unique module name
+  depends: string[]                          // Array of module names this module depends on
+  provides: string[]                         // Array of capabilities this module provides
+  setup: () => Promise<void>                 // Async setup function for database schema initialization
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  init: (...args: any[]) => void
+  init: (...args: any[]) => void            // Initialization function called by the indexer
 }
