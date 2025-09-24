@@ -1,3 +1,4 @@
+/* eslint-disable @stylistic/no-multi-spaces */
 /* eslint-disable max-lines */
 import {
   createHash,
@@ -65,7 +66,7 @@ export const defaultIndexerConfig = {
   logLevel: "info" as EcleciaIndexerConfig["logLevel"], // Default log level
   usePolling: false,                                  // Use WebSocket subscription by default
   pollingInterval: 5000,                              // Poll every 5 seconds when polling enabled
-  processGenesis: false,                              // Skip genesis processing by default
+  shouldProcessGenesis: () => false,                  // Skip genesis processing by default
   minimal: true,                                      // Use minimal indexing by default
   init: () => Promise.resolve(),                      // No-op initialization function
   beginTransaction: () => Promise.resolve(),          // No-op transaction begin function
@@ -265,7 +266,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         this.setStatus("FAILED");
         throw e;
       }
-      if (this.config.processGenesis) {
+      if (await this.config.shouldProcessGenesis()) {
         try {
           if (this.config.genesisPath) {
             await this.parseGenesis();

@@ -85,6 +85,7 @@ export class PgIndexer {
       getNextHeight: this.getNextHeight.bind(this),
       beginTransaction: this.beginTransaction.bind(this),
       endTransaction: this.endTransaction.bind(this),
+      shouldProcessGenesis: this.shouldProcessGenesis.bind(this),
     });
     this.indexer.log.info("Indexer instantiated");
 
@@ -158,6 +159,43 @@ export class PgIndexer {
     }
     catch (e) {
       this.indexer.log.error("Error fetching latest height processed: " + e);
+      throw e;
+    }
+  }
+
+  /**
+   * Determines the next block height to process by querying the database
+   * Returns the configured start height if no blocks are found in the database
+   * @returns The next block height to process
+   */
+  public async shouldProcessGenesis() {
+    if (!this.config.processGenesis) {
+      return false;
+    }
+    try {
+      // Ensure database connection is active
+      if (!this.instanceConnected) {
+        this.db = new Client(this.config.dbConnectionString);
+        await this.db.connect();
+        this.instanceConnected = true;
+      }
+
+      // Query for the highest block height in the database
+      const res = await this.db.query("SELECT * FROM blocks ORDER BY height DESC LIMIT 1");
+      if (res.rowCount != 0) {
+        return false;
+      }
+      else {
+        if (this.config.startHeight === 1) {
+          return true;
+        }
+        else {
+          return false;
+        }
+      }
+    }
+    catch (e) {
+      this.indexer.log.error("Error deciding whether to process genesis: " + e);
       throw e;
     }
   }

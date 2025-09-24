@@ -1,3 +1,4 @@
+/* eslint-disable @stylistic/no-multi-spaces */
 import {
   BlockResponse, BlockResultsResponse,
 } from "@cosmjs/tendermint-rpc";
@@ -27,7 +28,7 @@ export type EcleciaIndexerConfig = {
   getNextHeight: () => number | PromiseLike<number>             // Function to determine next block to process
   logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly" // Logging verbosity level
   rpcUrl: string                                                 // Tendermint RPC endpoint URL
-  processGenesis?: boolean                                       // Whether to process genesis state
+  shouldProcessGenesis: () => Promise<boolean>                   // Whether to process genesis state
   genesisPath?: string                                           // Path to genesis file
   usePolling?: boolean                                           // Use polling instead of WebSocket subscription
   pollingInterval?: number                                       // Interval between polls in milliseconds
