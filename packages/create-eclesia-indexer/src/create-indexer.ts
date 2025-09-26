@@ -184,7 +184,7 @@ async function gatherProjectInfo(initialProjectName?: string): Promise<ProjectCo
   else {
     answers1.processGenesis = "No";
   }
-  if (answers1.processGenesis) {
+  if (answers1.processGenesis === "Yes") {
     const genesisPathQuestion = await prompt([
       {
         type: "input",
