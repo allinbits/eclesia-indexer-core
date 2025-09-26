@@ -554,12 +554,32 @@ export class EcleciaIndexer extends EclesiaEmitter {
       // parsing log rather than using events directly in order to have msg_index available to filter appropriate events for each msg
       const events: Array<{
         msg_index?: number
-        events: Event[]
+        events: (Event | Event38)[]
       }> = txlog
         ? JSON.parse(txlog)
         : [];
       if (events.length == 0) {
-        events.concat(block_results.results[t].events.;
+        const eventsToAdd: typeof events = [];
+        for (let m = 0; m < block_results.results[t].events.length; m++) {
+          if (block_results.results[t].events[m].attributes.find(a => decodeAttr(a.key) == "msg_index")) {
+            const mi = decodeAttr(block_results.results[t].events[m].attributes.find(a => decodeAttr(a.key) == "msg_index")?.value ?? "");
+            if (mi != "") {
+              const miNum = parseInt(mi);
+              let ev = eventsToAdd.find(x => x.msg_index == miNum);
+              if (!ev) {
+                ev = {
+                  msg_index: miNum,
+                  events: [block_results.results[t].events[m]],
+                };
+                eventsToAdd.push(ev);
+              }
+              else {
+                ev.events.push(block_results.results[t].events[m] as Event);
+              }
+            }
+          }
+        }
+        events.concat(eventsToAdd);
       }
       const msgs = tx.body?.messages;
 
@@ -590,7 +610,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
                   }
                   return events;
                 },
-                [] as Event[]);
+                [] as (Event | Event38)[]);
                 await this.asyncEmit(authzMsgs[r].typeUrl as never,
                   {
                     value: {

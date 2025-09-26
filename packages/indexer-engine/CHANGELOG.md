@@ -1,5 +1,11 @@
 # @eclesia/indexer-engine
 
+## 2.9.3
+
+### Patch Changes
+
+- Fix events for comet38
+
 ## 2.9.2
 
 ### Patch Changes

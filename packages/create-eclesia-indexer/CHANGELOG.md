@@ -1,5 +1,11 @@
 # create-eclesia-indexer
 
+## 1.0.3
+
+### Patch Changes
+
+- Fix events for comet38
+
 ## 1.0.2
 
 ### Patch Changes

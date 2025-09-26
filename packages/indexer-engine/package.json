@@ -1,6 +1,6 @@
 {
   "name": "@eclesia/indexer-engine",
-  "version": "2.9.2",
+  "version": "2.9.3",
   "description": "Core eclesia indexer engine",
   "scripts": {
     "build": "tsc --noEmit && tsdown",
