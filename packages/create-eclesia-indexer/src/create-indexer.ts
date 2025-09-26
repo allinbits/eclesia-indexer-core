@@ -6,7 +6,7 @@ import fse from "fs-extra";
 const {
   ensureDirSync, copySync, writeFileSync, readFileSync,
 } = fse;
-import {
+import path, {
   resolve,
 } from "node:path";
 import {
@@ -75,7 +75,7 @@ export async function createIndexer(initialProjectName?: string): Promise<void> 
   console.log(colors.blue("📁 Creating project directory..."));
   ensureDirSync(targetDir);
 
-  console.log(colors.blue("📋 Copying template files..."));
+  console.log(colors.blue("📋 Copying files..."));
   await copyTemplateFiles(config, targetDir);
 
   console.log(colors.blue("🔧 Processing template variables..."));
@@ -84,13 +84,21 @@ export async function createIndexer(initialProjectName?: string): Promise<void> 
   console.log(colors.blue("📦 Installing dependencies..."));
   await installDependencies(config, targetDir);
 
+  console.log(colors.blue("📦 Building..."));
+  await buildProject(config, targetDir);
+
   console.log();
   console.log(colors.green("🎉 Your indexer is ready!"));
   console.log();
   console.log("Next steps:");
   console.log(colors.cyan(`  cd ${config.projectName}`));
-  console.log(colors.cyan(`  ${config.packageManager} run build`));
-  console.log(colors.cyan(`  ${config.packageManager} start`));
+  console.log(colors.cyan(`  ${config.packageManager} local-dev:start # To run a self-contained local development environment with Postgres`));
+  console.log();
+  console.log("If you want to run the indexer against an external Postgres database instead of the local development environment, set the database connection string in the .env file.");
+  console.log();
+  console.log(colors.cyan(`  ${config.packageManager} start # To run the indexer`));
+  console.log();
+  console.log("Happy indexing!");
   console.log();
 }
 
@@ -126,6 +134,18 @@ async function gatherProjectInfo(initialProjectName?: string): Promise<ProjectCo
       name: "rpcEndpoint",
       message: "RPC endpoint:",
       initial: "https://rpc.cosmos.network",
+      validate: (value: string) => {
+        try {
+          const url = new URL(value);
+          if (url.protocol === "http:" || url.protocol === "https:" || url.protocol === "ws:" || url.protocol === "wss:") {
+            return true;
+          }
+          return "Please enter a valid HTTP/HTTPS/WS/WSS URL.";
+        }
+        catch (err) {
+          return "Please enter a valid URL: " + err;
+        }
+      },
     },
     {
       type: "toggle",
@@ -171,9 +191,18 @@ async function gatherProjectInfo(initialProjectName?: string): Promise<ProjectCo
         name: "genesisPath",
         message: "Path to genesis file:",
         initial: "./genesis.json",
+        validate: (value: string) => {
+          try {
+            fse.accessSync(value, fse.constants.R_OK);
+            return true;
+          }
+          catch (err) {
+            return "File not found or not readable. Please enter a valid path: " + err;
+          }
+        },
       },
     ]) as ProjectConfig;
-    answers1.genesisPath = genesisPathQuestion.genesisPath;
+    answers1.genesisPath = genesisPathQuestion.genesisPath ? path.resolve(genesisPathQuestion.genesisPath) : null;
   }
   else {
     answers1.genesisPath = null;
@@ -209,7 +238,7 @@ async function gatherProjectInfo(initialProjectName?: string): Promise<ProjectCo
       name: "logLevel",
       message: "Log level:",
       choices: ["error", "warn", "info", "verbose", "debug", "silly"],
-      initial: 0,
+      initial: 4,
     },
   ];
   const answers2 = await prompt(questions2) as ProjectConfig;
@@ -221,10 +250,27 @@ async function gatherProjectInfo(initialProjectName?: string): Promise<ProjectCo
 
 async function copyTemplateFiles(config: ProjectConfig, targetDir: string): Promise<void> {
   const templatesDir = resolve(__dirname, "..", "templates", "basic");
-  copySync(templatesDir, targetDir, {
-    filter: src => !src.includes(".template"),
-  });
+  if (config.genesisPath) {
+    console.log(colors.blue("📋 Copying genesis file..."));
+    copySync(config.genesisPath, targetDir + "/genesis.json");
+  }
 
+  console.log(colors.blue("📋 Copying template files..."));
+  copySync(templatesDir, targetDir, {
+    filter: (src) => {
+      if (src.includes(".template")) {
+        return false;
+      }
+      if (config.packageManager !== "pnpm" && src.includes("pnpm-workspace")) {
+        return false;
+      }
+      if (src.includes("Dockerfile")) {
+        return false;
+      }
+      return true;
+    },
+  });
+  copySync(resolve(templatesDir, "Dockerfile." + config.packageManager), targetDir + "/Dockerfile");
   // Copy template files
   const templateFiles = ["package.json.template", "src/index.ts.template", "tsconfig.json.template", "docker-compose.yml.template", "README.md.template", ".env.template"];
 
@@ -242,6 +288,11 @@ async function copyTemplateFiles(config: ProjectConfig, targetDir: string): Prom
 }
 
 async function processTemplates(config: ProjectConfig, targetDir: string): Promise<void> {
+  let polling = false;
+  const url = new URL(config.rpcEndpoint);
+  if (url.protocol === "http:" || url.protocol === "https:") {
+    polling = true;
+  }
   const templateVars = {
     PROJECT_NAME: config.projectName,
     CHAIN_NAME: config.chainName,
@@ -250,12 +301,14 @@ async function processTemplates(config: ProjectConfig, targetDir: string): Promi
     PG_CONNECTION_STRING: "postgres://postgres:password@postgres:5432/indexer",
     LOG_LEVEL: config.logLevel,
     QUEUE_SIZE: config.queueSize.toString(),
+    USE_POLLING: polling ? "true" : "false",
     PROCESS_GENESIS: config.processGenesis + "",
-    GENESIS_PATH: config.genesisPath || "",
+    GENESIS_PATH: path.resolve(targetDir, "genesis.json"),
     MINIMAL: config.minimal ? "true" : "false",
     START_HEIGHT: config.startHeight.toString(),
     CHAIN_PREFIX: config.chainName.split("-")[0] || "cosmos",
     MODULES_IMPORT: generateModulesImport(config),
+    PACKAGE_MANAGER: config.packageManager,
     MODULES_INSTANTIATION: generateModulesInstantiation(config),
     MODULES_ARRAY: generateModulesArray(config),
   };
@@ -344,6 +397,28 @@ async function installDependencies(config: ProjectConfig, targetDir: string): Pr
 
   return new Promise((resolve, reject) => {
     const child = spawn(config.packageManager, ["install"], {
+      cwd: targetDir,
+      stdio: "inherit",
+    });
+
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Package installation failed with code ${code}`));
+      }
+      else {
+        resolve();
+      }
+    });
+  });
+}
+
+async function buildProject(config: ProjectConfig, targetDir: string): Promise<void> {
+  const {
+    spawn,
+  } = await import("node:child_process");
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(config.packageManager, ["run", "build"], {
       cwd: targetDir,
       stdio: "inherit",
     });

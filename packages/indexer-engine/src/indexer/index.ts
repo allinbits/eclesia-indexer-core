@@ -287,9 +287,11 @@ export class EcleciaIndexer extends EclesiaEmitter {
         this.subscription = null;
         this.log.verbose("Removed existing block listener and subscription");
       }
-      this.subscription = this.client.subscribeNewBlock
-        ? this.client.subscribeNewBlock()
-        : null;
+      if (!this.config.usePolling) {
+        this.subscription = this.client.subscribeNewBlock
+          ? this.client.subscribeNewBlock()
+          : null;
+      }
       const status = await this.client.status();
       this.latestHeight = status.syncInfo.latestBlockHeight;
       this.log.info("Current chain height: " + this.latestHeight);

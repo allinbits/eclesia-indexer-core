@@ -21,10 +21,13 @@ services:
       - RPC_ENDPOINT={{RPC_ENDPOINT}}
       - PG_CONNECTION_STRING=postgres://postgres:password@postgres:5432/indexer
       - LOG_LEVEL={{LOG_LEVEL}}
+      - USE_POLLING={{USE_POLLING}}
       - QUEUE_SIZE={{QUEUE_SIZE}}
       - PROCESS_GENESIS={{PROCESS_GENESIS}}
       - CHAIN_PREFIX={{CHAIN_PREFIX}}
       - START_HEIGHT={{START_HEIGHT}}
+    volumes:
+      - {{GENESIS_PATH}}:/usr/src/app/genesis.json
     depends_on:
       postgres:
         condition: service_healthy
