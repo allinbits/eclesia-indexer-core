@@ -14,6 +14,9 @@ import {
   BlockResultsResponse,
 } from "@cosmjs/tendermint-rpc";
 import {
+  BlockResultsResponse as BlockResultsResponse38,
+} from "@cosmjs/tendermint-rpc/build/comet38/responses.js";
+import {
   PgIndexer,
 } from "@eclesia/basic-pg-indexer";
 import {
@@ -168,11 +171,13 @@ export class BankModule implements Types.IndexingModule {
     value:
       | BlockResultsResponse["beginBlockEvents"]
       | BlockResultsResponse["endBlockEvents"]
+      | BlockResultsResponse38["finalizeBlockEvents"]
       | BlockResultsResponse["results"]
+      | BlockResultsResponse38["results"]
     height?: number
     uuid?: string
   }) {
-    let events: BlockResultsResponse["endBlockEvents"];
+    let events: readonly (BlockResultsResponse38["finalizeBlockEvents"][0] | BlockResultsResponse["beginBlockEvents"][0])[];
     // Flatten transaction events if needed
     if (this.isTxResults(data.value)) {
       events = data.value.map(x => x.events).flat();
@@ -271,8 +276,10 @@ export class BankModule implements Types.IndexingModule {
     data:
       | BlockResultsResponse["beginBlockEvents"]
       | BlockResultsResponse["endBlockEvents"]
-      | BlockResultsResponse["results"],
-  ): data is BlockResultsResponse["results"] {
+      | BlockResultsResponse38["finalizeBlockEvents"]
+      | BlockResultsResponse["results"]
+      | BlockResultsResponse38["results"],
+  ): data is BlockResultsResponse["results"] | BlockResultsResponse38["results"] {
     if (data.length > 0) {
       return (data as BlockResultsResponse["results"])[0].events !== undefined;
     }

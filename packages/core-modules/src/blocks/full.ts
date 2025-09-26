@@ -14,6 +14,9 @@ import {
   TxData,
 } from "@cosmjs/tendermint-rpc";
 import {
+  TxData as TxData38,
+} from "@cosmjs/tendermint-rpc/build/comet38/responses.js";
+import {
   PgIndexer,
 } from "@eclesia/basic-pg-indexer";
 import {
@@ -290,7 +293,7 @@ export class FullBlocksModule implements Types.IndexingModule {
     txHash: string,
     height: number,
     tx: Tx,
-    txdata: TxData,
+    txdata: TxData | TxData38,
     registryMap: Map<string, GeneratedType>,
   ) {
     const db = this.pgIndexer.getInstance();
@@ -324,6 +327,7 @@ export class FullBlocksModule implements Types.IndexingModule {
         txdata.gasWanted,
         txdata.gasUsed,
         // Remove null bytes from log string to prevent database issues
+        // eslint-disable-next-line no-control-regex
         txdata.log?.replace(/\u0000/g, ""),
         JSON.stringify(Utils.toPlainObject(txdata.events)),
       ],

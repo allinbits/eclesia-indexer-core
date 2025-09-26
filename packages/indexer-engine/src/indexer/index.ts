@@ -558,6 +558,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
       }> = txlog
         ? JSON.parse(txlog)
         : [];
+      if (events.length == 0) {
+        events.concat(block_results.results[t].events.;
+      }
       const msgs = tx.body?.messages;
 
       if (msgs) {

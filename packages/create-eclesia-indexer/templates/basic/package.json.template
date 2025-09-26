@@ -30,9 +30,9 @@
     "@cosmjs/proto-signing": "^0.36.0",
     "@cosmjs/stargate": "^0.36.0",
     "@cosmjs/tendermint-rpc": "^0.36.0",
-    "@eclesia/basic-pg-indexer": "^2.9.1",
-    "@eclesia/core-modules-pg": "^2.9.1",
-    "@eclesia/indexer-engine": "^2.9.1",
+    "@eclesia/basic-pg-indexer": "^2.9.2",
+    "@eclesia/core-modules-pg": "^2.9.2",
+    "@eclesia/indexer-engine": "^2.9.2",
     "bignumber.js": "^9.3.1",
     "json-with-bigint": "^3.4.4",
     "pg": "^8.16.3"

@@ -1,5 +1,12 @@
 # @eclesia/indexer-engine
 
+## 2.9.2
+
+### Patch Changes
+
+- efd78ac: Fix comet 38 events
+- 8631218: Polling fix
+
 ## 2.9.1
 
 ### Patch Changes
