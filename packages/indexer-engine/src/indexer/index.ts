@@ -6,14 +6,11 @@ import {
 import * as fs from "node:fs";
 
 import {
-  BlockResponse, BlockResultsResponse, CometClient, toRfc3339WithNanoseconds,
+  BlockResponse, BlockResultsResponse, CometClient, connectComet, Event, toRfc3339WithNanoseconds,
 } from "@cosmjs/tendermint-rpc";
 import {
-  connectComet,
-} from "@cosmjs/tendermint-rpc";
-import {
-  Event,
-} from "@cosmjs/tendermint-rpc";
+  BlockResultsResponse as BlockResultsResponse38, Event as Event38,
+} from "@cosmjs/tendermint-rpc/build/comet38/responses.js";
 import {
   MsgExec,
 } from "cosmjs-types/cosmos/authz/v1beta1/tx.js";
@@ -468,7 +465,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     return prom;
   };
 
-  private async processBlock(block: BlockResponse, block_results: BlockResultsResponse, validators?: Validator[]) {
+  private async processBlock(block: BlockResponse, block_results: BlockResultsResponse | BlockResultsResponse38, validators?: Validator[]) {
     let processStart: [number, number] = [0, 0];
     if (this.config.logLevel == "silly") {
       processStart = process.hrtime();
@@ -498,11 +495,21 @@ export class EcleciaIndexer extends EclesiaEmitter {
       });
     this.log.silly("Modules handled block event");
 
+    let beginBlockEvents: readonly Event[] | readonly Event38[];
+    let endBlockEvents: readonly Event[] | readonly Event38[];
+    if ((block_results as BlockResultsResponse38).finalizeBlockEvents) {
+      beginBlockEvents = (block_results as BlockResultsResponse38).finalizeBlockEvents.filter(x => x.attributes.find(a => decodeAttr(a.key) == "mode" && decodeAttr(a.value) == "begin_block")) as readonly Event38[];
+      endBlockEvents = (block_results as BlockResultsResponse38).finalizeBlockEvents.filter(x => x.attributes.find(a => decodeAttr(a.key) == "mode" && decodeAttr(a.value) == "end_block")) as readonly Event38[];
+    }
+    else {
+      beginBlockEvents = (block_results as BlockResultsResponse).beginBlockEvents;
+      endBlockEvents = (block_results as BlockResultsResponse).endBlockEvents;
+    }
     // Deal with begin_block events first
     await this.asyncEmit("begin_block",
       {
         value: {
-          events: block_results.beginBlockEvents,
+          events: beginBlockEvents!,
           validators,
         },
         height,
@@ -601,7 +608,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     // Then deal with end_block events
     await this.asyncEmit("end_block",
       {
-        value: block_results.endBlockEvents,
+        value: endBlockEvents!,
         height,
         timestamp,
       });

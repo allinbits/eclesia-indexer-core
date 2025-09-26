@@ -3,7 +3,7 @@ import {
   BlockResponse, BlockResultsResponse,
 } from "@cosmjs/tendermint-rpc";
 import {
-  Event,
+  BlockResultsResponse as BlockResultsResponse38, Event,
 } from "@cosmjs/tendermint-rpc/build/comet38/responses";
 import {
   Validator,
@@ -76,7 +76,7 @@ export type Events = {
   uuid: UUIDEvent
   begin_block: {
     value: {
-      events: BlockResultsResponse["beginBlockEvents"]
+      events: BlockResultsResponse["beginBlockEvents"] | BlockResultsResponse38["finalizeBlockEvents"]
       validators: Validator[] | undefined
     }
   }
@@ -84,14 +84,14 @@ export type Events = {
   block: {
     value: {
       block: BlockResponse
-      block_results: BlockResultsResponse
+      block_results: BlockResultsResponse | BlockResultsResponse38
     }
   }
   end_block: {
-    value: BlockResultsResponse["endBlockEvents"]
+    value: BlockResultsResponse["endBlockEvents"] | BlockResultsResponse38["finalizeBlockEvents"]
   }
   tx_events: {
-    value: BlockResultsResponse["results"]
+    value: BlockResultsResponse["results"] | BlockResultsResponse38["results"]
   }
   tx_memo: {
     value: {
