@@ -1,0 +1,109 @@
+# {{PROJECT_NAME}}
+
+{{DESCRIPTION}}
+
+A custom indexer for **{{CHAIN_NAME}}** built with eclesia-indexer-core.
+
+## Features
+
+- ✅ Block indexing
+- ✅ Transaction processing
+- ✅ Module-based architecture
+- ✅ PostgreSQL storage
+- ✅ Real-time synchronization
+- ✅ Docker support
+
+## Prerequisites
+
+- Node.js 18+
+- PostgreSQL 12+
+- Access to {{CHAIN_NAME}} RPC endpoint
+
+## Quick Start
+
+1. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+2. **Set up environment**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
+
+3. **Start PostgreSQL** (if using Docker)
+   ```bash
+   docker-compose up postgres -d
+   ```
+
+4. **Run the indexer**
+   ```bash
+   npm run build
+   npm start
+   ```
+
+## Configuration
+
+Configure your indexer through environment variables or directly in `src/index.ts`:
+
+- `RPC_ENDPOINT`: {{CHAIN_NAME}} RPC endpoint (default: {{RPC_ENDPOINT}})
+- `PG_CONNECTION_STRING`: PostgreSQL connection string
+- `LOG_LEVEL`: Logging level (info, debug, warn, error)
+- `QUEUE_SIZE`: Batch size for processing blocks
+- `PROCESS_GENESIS`: Whether to process the genesis block
+
+## Docker Deployment
+
+```bash
+docker-compose up -d
+```
+
+This will start both PostgreSQL and the indexer in containers.
+
+## Development
+
+```bash
+npm run dev  # Start in development mode with hot reload
+npm run lint # Run ESLint
+npm run build # Build for production
+```
+
+## Database Schema
+
+The indexer automatically creates the necessary database tables on startup. You can find migration files in the `src/migrations/` directory (if applicable).
+
+## Adding Custom Modules
+
+To add custom indexing logic:
+
+1. Create a new module in `src/modules/`
+2. Implement the required interfaces from eclesia-indexer-core
+3. Register your module in `src/index.ts`
+
+## Troubleshooting
+
+### Common Issues
+
+**Connection refused to database**
+- Ensure PostgreSQL is running
+- Check your connection string
+- Verify network connectivity
+
+**RPC endpoint errors**
+- Verify the RPC endpoint is accessible
+- Check for rate limiting
+- Ensure the endpoint supports the required methods
+
+**High memory usage**
+- Reduce `QUEUE_SIZE` if processing large blocks
+- Monitor PostgreSQL memory usage
+- Consider using connection pooling
+
+## License
+
+ISC
+
+## Support
+
+For issues with eclesia-indexer-core, please refer to the main repository documentation.

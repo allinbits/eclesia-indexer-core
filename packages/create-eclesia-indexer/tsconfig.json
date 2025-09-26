@@ -1,0 +1,27 @@
+{
+  "include": [
+    "src/**/*"
+  ],
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "es2020",
+    "rootDir": "./src/",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": false,
+    "outDir": "./dist/",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "exclude": [
+    "src/**/*.test.ts",
+    "dist",
+    "src/templates"
+  ]
+}

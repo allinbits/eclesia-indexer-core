@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_DB: indexer
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d {{PROJECT_NAME}}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  indexer:
+    build: .
+    environment:    
+      - RPC_ENDPOINT={{RPC_ENDPOINT}}
+      - PG_CONNECTION_STRING=postgres://postgres:password@postgres:5432/indexer
+      - LOG_LEVEL={{LOG_LEVEL}}
+      - QUEUE_SIZE={{QUEUE_SIZE}}
+      - PROCESS_GENESIS={{PROCESS_GENESIS}}
+      - CHAIN_PREFIX={{CHAIN_PREFIX}}
+      - START_HEIGHT={{START_HEIGHT}}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+  graphql-engine:
+    image: hasura/graphql-engine:v2.38.0
+    ports:
+      - "8080:8080"
+    restart: always
+    environment:
+      ## postgres database to store Hasura metadata
+      HASURA_GRAPHQL_METADATA_DATABASE_URL: postgres://postgres:password@postgres:5432/indexer
+      ## this env var can be used to add the above postgres database to Hasura as a data source. this can be removed/updated based on your needs
+      HASURA_GRAPHQL_DATABASE_URL: postgres://postgres:password@postgres:5432/indexer
+      ## enable the console served by server
+      HASURA_GRAPHQL_ENABLE_CONSOLE: "true" # set to "false" to disable console
+      ## enable debugging mode. It is recommended to disable this in production
+      HASURA_GRAPHQL_DEV_MODE: "true"
+      HASURA_GRAPHQL_STRINGIFY_NUMERIC_TYPES: "true"
+      HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log, websocket-log, query-log
+      ## uncomment next line to run console offline (i.e load console assets from server instead of CDN)
+      # HASURA_GRAPHQL_CONSOLE_ASSETS_DIR: /srv/console-assets
+      ## uncomment next line to set an admin secret
+      # HASURA_GRAPHQL_ADMIN_SECRET: myadminsecretkey
+volumes:
+  postgres_data:

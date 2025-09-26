@@ -1,0 +1,49 @@
+import {
+  defaultRegistryTypes,
+} from "@cosmjs/stargate";
+import {
+  PgIndexer, PgIndexerConfig,
+} from "@eclesia/basic-pg-indexer";
+{{MODULES_IMPORT}}
+
+const config: PgIndexerConfig = {
+  startHeight: Number(process.env.START_HEIGHT) || {{START_HEIGHT}},
+  batchSize: Number(process.env.QUEUE_SIZE) || {{QUEUE_SIZE}},
+  modules: [],
+  rpcUrl: process.env.RPC_ENDPOINT || "{{RPC_ENDPOINT}}",
+  logLevel: process.env.LOG_LEVEL as PgIndexerConfig["logLevel"] ?? "debug",
+  usePolling: false,
+  pollingInterval: 0,
+  processGenesis: process.env.PROCESS_GENESIS == "true" || false,
+  minimal: process.env.MINIMAL == "true" || false,
+  genesisPath: "./genesis.json",
+  dbConnectionString: process.env.PG_CONNECTION_STRING || "{{PG_CONNECTION_STRING}}",
+};
+
+// Initialize protocol registry
+// You may need to import specific protocol registries for your chain
+const registry = defaultRegistryTypes.concat([]); // Add your chain's proto registry here eg. defaultRegistryTypes.concat(myCustomRegistryTypes)
+
+// Initialize modules
+{{MODULES_INSTANTIATION}}
+
+const indexer = new PgIndexer(config, {{MODULES_ARRAY}});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.log("Unhandled Rejection at:", promise, "reason:", reason);
+  console.trace();
+  process.exit(1);
+});
+
+const run = async () => {
+  try {
+    await indexer.setup();
+    await indexer.run();
+  }
+  catch (error) {
+    console.error("Error running indexer:", error);
+    process.exit(1);
+  }
+};
+
+run();
