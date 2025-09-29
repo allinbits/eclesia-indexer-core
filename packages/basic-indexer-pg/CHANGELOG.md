@@ -1,5 +1,11 @@
 # @eclesia/basic-pg-indexer
 
+## 2.9.7
+
+### Patch Changes
+
+- chore: fix healthcheck db name
+
 ## 2.9.6
 
 ### Patch Changes

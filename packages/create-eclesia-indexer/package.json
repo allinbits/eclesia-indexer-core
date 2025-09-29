@@ -1,6 +1,6 @@
 {
   "name": "create-eclesia-indexer",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "CLI tool to scaffold Cosmos SDK chain indexers using eclesia-indexer-core",
   "type": "module",
   "bin": {

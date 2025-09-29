@@ -1,5 +1,11 @@
 # create-eclesia-indexer
 
+## 1.0.7
+
+### Patch Changes
+
+- chore: fix healthcheck db name
+
 ## 1.0.6
 
 ### Patch Changes
