@@ -1,5 +1,23 @@
 # @eclesia/core-modules-pg
 
+## 2.9.6
+
+### Patch Changes
+
+- Add RPC timeout
+
+## 2.9.5
+
+### Patch Changes
+
+- fix events buf
+
+## 2.9.4
+
+### Patch Changes
+
+- Debug indexer
+
 ## 2.9.3
 
 ### Patch Changes

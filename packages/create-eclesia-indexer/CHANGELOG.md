@@ -1,5 +1,23 @@
 # create-eclesia-indexer
 
+## 1.0.6
+
+### Patch Changes
+
+- Add RPC timeout
+
+## 1.0.5
+
+### Patch Changes
+
+- fix events buf
+
+## 1.0.4
+
+### Patch Changes
+
+- Debug indexer
+
 ## 1.0.3
 
 ### Patch Changes

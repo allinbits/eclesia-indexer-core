@@ -21,4 +21,6 @@ RUN npm ci --only=production && npm cache clean --force
 
 COPY --from=builder /usr/src/app .
 
+RUN npm run build
+
 ENTRYPOINT ["node", "dist/index.js" ]

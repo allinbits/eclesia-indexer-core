@@ -1,6 +1,6 @@
 {
   "name": "@eclesia/basic-pg-indexer",
-  "version": "2.9.3",
+  "version": "2.9.6",
   "description": "Basic PostGres eclesia indexer",
   "type": "module",
   "scripts": {

@@ -331,7 +331,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
         this.log.silly("Started db tx");
         let height, timestamp;
         if (this.isMinimal(this.blockQueue)) {
-          const toProcess = await this.blockQueue.dequeue();
+          const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((resolve, reject) => {
+            setTimeout(reject, 30000, []);
+          });
+          const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
           this.log.silly("Retrieved block data");
           if (!toProcess || !toProcess[0] || !toProcess[1]) {
             throw new Error("Could not fetch block");
@@ -342,7 +345,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
             toProcess[1]);
         }
         else {
-          const toProcess = await this.blockQueue.dequeue();
+          const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((resolve, reject) => {
+            setTimeout(reject, 30000, []);
+          });
+          const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
           this.log.silly("Retrieved block data");
           if (!toProcess || !toProcess[0] || !toProcess[1] || !toProcess[2]) {
             throw new Error("Could not fetch block");
@@ -473,7 +479,6 @@ export class EcleciaIndexer extends EclesiaEmitter {
     const height = block.block.header.height;
     this.log.debug("Processing block: %d",
       height);
-    this.log.silly("Started db tx");
 
     // Initialize height & timestamp to be used for this block-processing run
     const timestamp = toRfc3339WithNanoseconds(block.block.header.time);
@@ -552,7 +557,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
           });
       }
       // parsing log rather than using events directly in order to have msg_index available to filter appropriate events for each msg
-      const events: Array<{
+      let events: Array<{
         msg_index?: number
         events: (Event | Event38)[]
       }> = txlog
@@ -560,6 +565,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         : [];
       if (events.length == 0) {
         const eventsToAdd: typeof events = [];
+        this.log.silly("No events found in tx log. Parsing events for msg_index");
         for (let m = 0; m < block_results.results[t].events.length; m++) {
           if (block_results.results[t].events[m].attributes.find(a => decodeAttr(a.key) == "msg_index")) {
             const mi = decodeAttr(block_results.results[t].events[m].attributes.find(a => decodeAttr(a.key) == "msg_index")?.value ?? "");
@@ -579,7 +585,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
             }
           }
         }
-        events.concat(eventsToAdd);
+        events = events.concat(eventsToAdd);
       }
       const msgs = tx.body?.messages;
 
