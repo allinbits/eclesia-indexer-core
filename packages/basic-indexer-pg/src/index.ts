@@ -115,7 +115,11 @@ export class PgIndexer {
    * Starts the indexer by connecting to RPC and beginning block processing
    */
   public async run() {
-    await this.indexer.connect();
+    const connected = await this.indexer.connect();
+    if (!connected) {
+      throw new Error("Could not connect to RPC");
+    }
+    this.indexer.log.info("Connected to RPC");
     await this.indexer.start();
   }
 
@@ -124,7 +128,10 @@ export class PgIndexer {
    * This should be called before run() to ensure proper database schema setup
    */
   async setup() {
-    await this.indexer.connect();
+    const connected = await this.indexer.connect();
+    if (!connected) {
+      throw new Error("Could not connect to RPC");
+    }
     this.indexer.log.info("Connected to RPC");
     // Initialize database schemas for all modules
     for (const indexingModule in this.modules) {

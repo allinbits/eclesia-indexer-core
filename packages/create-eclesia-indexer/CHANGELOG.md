@@ -1,5 +1,11 @@
 # create-eclesia-indexer
 
+## 1.0.9
+
+### Patch Changes
+
+- fix: RPC exception handling
+
 ## 1.0.8
 
 ### Patch Changes

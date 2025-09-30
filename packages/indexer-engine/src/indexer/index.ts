@@ -798,16 +798,23 @@ export class EcleciaIndexer extends EclesiaEmitter {
   }
 
   private async pollForBlock() {
-    const status = await this.client.status();
-    if (status.syncInfo.latestBlockHeight > this.latestHeight) {
-      while (this.latestHeight < status.syncInfo.latestBlockHeight) {
-        this.newBlockReceived(this.latestHeight + 1);
+    try {
+      const status = await this.client.status();
+      if (status.syncInfo.latestBlockHeight > this.latestHeight) {
+        while (this.latestHeight < status.syncInfo.latestBlockHeight) {
+          this.newBlockReceived(this.latestHeight + 1);
+        }
       }
+      setTimeout(() => {
+        this.pollForBlock();
+      },
+      this.config.pollingInterval);
     }
-    setTimeout(() => {
-      this.pollForBlock();
-    },
-    this.config.pollingInterval);
+    catch (e) {
+      this.log.error("Error polling for new block: " + e);
+      this.tryToRecover = true;
+      this.retryCount++;
+    }
   }
 
   private readGenesis(): Parser.Parser {

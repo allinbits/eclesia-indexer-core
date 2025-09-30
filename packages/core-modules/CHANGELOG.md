@@ -1,5 +1,11 @@
 # @eclesia/core-modules-pg
 
+## 2.9.8
+
+### Patch Changes
+
+- fix: RPC exception handling
+
 ## 2.9.7
 
 ### Patch Changes
