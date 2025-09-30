@@ -1,0 +1,70 @@
+{
+  "name": "{{PROJECT_NAME}}",
+  "version": "1.0.0",
+  "description": "{{DESCRIPTION}}",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && tsdown && {{PACKAGE_MANAGER}} run postbuild",
+    "postbuild": "copyfiles -u 1 \"src/**/*.sql\" dist",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "docker:build": "docker build -t {{PROJECT_NAME}} .",
+    "docker:run": "docker run --env-file .env {{PROJECT_NAME}}",
+    "local-dev:start": "docker compose up -d",
+    "local-dev:stop": "docker compose down"
+  },
+  "bin": {
+    "{{PROJECT_NAME}}": "./dist/index.js"
+  },
+  "keywords": [
+    "cosmos",
+    "indexer",
+    "{{CHAIN_NAME}}",
+    "blockchain"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@cosmjs/proto-signing": "^0.36.0",
+    "@cosmjs/stargate": "^0.36.0",
+    "@cosmjs/tendermint-rpc": "^0.36.0",
+    "@eclesia/basic-pg-indexer": "^2.9.7",
+    "@eclesia/core-modules-pg": "^2.9.7",
+    "@eclesia/indexer-engine": "^2.9.7",
+    "bignumber.js": "^9.3.1",
+    "json-with-bigint": "^3.4.4",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/core": "^0.18.2",
+    "@eslint/js": "^9.35.0",
+    "@stylistic/eslint-plugin": "^5.3.1",
+    "@types/json-bigint": "^1.0.4",
+    "@types/node": "^22.7.5",
+    "@types/pg": "^8.15.5",
+    "copyfiles": "^2.4.1",
+    "eslint": "^9.35.0",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
+    "tsdown": "^0.15.2",
+    "tsx": "^4.19.1",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.44.0"
+  },
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.cts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  }
+}
