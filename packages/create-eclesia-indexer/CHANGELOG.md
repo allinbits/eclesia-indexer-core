@@ -1,5 +1,11 @@
 # create-eclesia-indexer
 
+## 1.0.8
+
+### Patch Changes
+
+- 32ade0a: chore: Update deps
+
 ## 1.0.7
 
 ### Patch Changes
