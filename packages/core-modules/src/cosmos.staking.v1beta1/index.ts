@@ -103,9 +103,9 @@ const __dirname = path.dirname(__filename);
 
 /** Cached validator information for performance optimization */
 export type CachedValidator = {
-  status: string           // Validator bond status (bonded, unbonded, unbonding)
-  jailed: boolean          // Whether validator is jailed
-  tokens: bigint           // Total tokens delegated to validator
+  status: string // Validator bond status (bonded, unbonded, unbonding)
+  jailed: boolean // Whether validator is jailed
+  tokens: bigint // Total tokens delegated to validator
   delegator_shares: BigNumber // Total shares issued by validator
 };
 
@@ -433,7 +433,7 @@ export class StakingModule implements Types.IndexingModule {
         await this.checkAndSaveValidators(event.value.validators, event.height);
       }
       // Handle auto-staking / fetch balances
-      if (event.height == 1 && process.env.AUTOSTAKE == "1" && event.value.validators) {
+      if (event.height == 1 && event.value.validators) {
         await this.fetchAutoStake(event.value.validators);
       }
       const slashEvents = event.value.events.filter(x => x.type == "slash");
