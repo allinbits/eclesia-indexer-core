@@ -1,5 +1,11 @@
 # @eclesia/basic-pg-indexer
 
+## 2.9.9
+
+### Patch Changes
+
+- 378e461: Minor bug fixes
+
 ## 2.9.8
 
 ### Patch Changes

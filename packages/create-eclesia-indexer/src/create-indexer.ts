@@ -27,11 +27,11 @@ interface ProjectConfig {
   description: string
   rpcEndpoint: string
   chainPrefix: string
-  minimal: string
+  minimal: boolean
   startHeight: number
   queueSize: number
   logLevel: string
-  processGenesis: string
+  processGenesis: boolean
   genesisPath: string | null
   modules: string[]
   packageManager: "npm" | "yarn" | "pnpm"
@@ -182,9 +182,9 @@ async function gatherProjectInfo(initialProjectName?: string): Promise<ProjectCo
     answers1.processGenesis = genesisQuestion.processGenesis;
   }
   else {
-    answers1.processGenesis = "No";
+    answers1.processGenesis = false;
   }
-  if (answers1.processGenesis === "Yes") {
+  if (answers1.processGenesis) {
     const genesisPathQuestion = await prompt([
       {
         type: "input",
@@ -306,7 +306,7 @@ async function processTemplates(config: ProjectConfig, targetDir: string): Promi
     GENESIS_PATH: path.resolve(targetDir, "genesis.json"),
     MINIMAL: config.minimal ? "true" : "false",
     START_HEIGHT: config.startHeight.toString(),
-    CHAIN_PREFIX: config.chainName.split("-")[0] || "cosmos",
+    CHAIN_PREFIX: config.chainPrefix,
     MODULES_IMPORT: generateModulesImport(config),
     PACKAGE_MANAGER: config.packageManager,
     MODULES_INSTANTIATION: generateModulesInstantiation(config),
