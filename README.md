@@ -11,6 +11,8 @@ npx create-eclesia-indexer@latest
 # Configure your chain and follow the instructions to build a postgres-based indexer
 ```
 
+More information in our tutorials: [Simple](TUTORIAL.md) and [Advanced](ADVANCED_TUTORIAL.md)
+
 ## 📦 Architecture
 
 Eclesia is built as a monorepo with four core packages that work together:
@@ -318,7 +320,7 @@ GNO NETWORK GENERAL PUBLIC LICENSE
 ## 🆘 Support
 
 - **Issues**: Report bugs and feature requests
-- **Extended Documentation**: [Coming soon]
+- **Extended Documentation**: See [Tutorial](TUTORIAL.md) and [Advanced Tutorial](ADVANCED_TUTORIAL.md)
 - **Examples**: See [AtomOne Indexer](https://github.com/allinbits/atomone-indexer)
 
 ---

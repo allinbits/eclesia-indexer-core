@@ -10,8 +10,7 @@
     "lint:fix": "eslint src/**/*.ts --fix",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "docker:build": "docker build -t {{PROJECT_NAME}} .",
-    "docker:run": "docker run --env-file .env {{PROJECT_NAME}}",
+    "docker:build": "docker compose build --no-cache",
     "local-dev:start": "docker compose up -d",
     "local-dev:stop": "docker compose down"
   },

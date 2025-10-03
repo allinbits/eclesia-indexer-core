@@ -1,5 +1,11 @@
 # create-eclesia-indexer
 
+## 1.0.11
+
+### Patch Changes
+
+- 1461d21: Updated docs and minor bug fixes
+
 ## 1.0.10
 
 ### Patch Changes
