@@ -20,7 +20,7 @@ Save this file to a location you can reference later.
 
 ## Step 1: Create Your Indexer
 
-Generate the indexer boilerplate:
+Generate the indexer boilerplate depending on your preferred package manager:
 
 <tabs>
 <tab label="npm">
@@ -93,7 +93,7 @@ Once scaffolding is complete, navigate to your project:
 cd a1-indexer
 ```
 
-Start the indexer stack:
+Start the indexer stack using your preferred package manager:
 
 <tabs>
 <tab label="npm">
