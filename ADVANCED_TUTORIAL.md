@@ -59,7 +59,7 @@ You'll be asked a series of questions to configure your indexer. Use the followi
 | Prompt | Value | Notes |
 |--------|-------|-------|
 | **Package manager** | _Your preference_ | pnpm, yarn, or npm |
-| **Log level** | `debug` | Default setting (recommended) |
+| **Log level** | `debug` | Default setting (recommended for development) |
 
 The scaffolding process will now begin.
 
