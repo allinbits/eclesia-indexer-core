@@ -22,6 +22,7 @@ services:
       - PG_CONNECTION_STRING=postgres://postgres:password@postgres:5432/indexer
       - LOG_LEVEL={{LOG_LEVEL}}
       - USE_POLLING={{USE_POLLING}}
+      - MINIMAL={{MINIMAL}}
       - QUEUE_SIZE={{QUEUE_SIZE}}
       - PROCESS_GENESIS={{PROCESS_GENESIS}}
       - CHAIN_PREFIX={{CHAIN_PREFIX}}
