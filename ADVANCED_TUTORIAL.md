@@ -21,29 +21,9 @@ In this tutorial, you'll create a custom module that:
 
 Generate the indexer boilerplate depending on your preferred package manager:
 
-<tabs>
-<tab label="npm">
-
 ```bash
-npx create-eclesia-indexer@latest
+npx create-eclesia-indexer@latest # or pnpm create create-eclesia-indexer@latest or yarn create create-eclesia-indexer@latest
 ```
-
-</tab>
-<tab label="pnpm">
-
-```bash
-pnpm create eclesia-indexer
-```
-
-</tab>
-<tab label="yarn">
-
-```bash
-yarn create eclesia-indexer
-```
-
-</tab>
-</tabs>
 
 ## Step 2: Configuration Prompts
 
@@ -62,7 +42,7 @@ You'll be asked a series of questions to configure your indexer. Use the followi
 
 | Prompt | Value | Notes |
 |--------|-------|-------|
-| **RPC endpoint** | `wss://cosmos-rpc.polkachu.com` | Publicly available node |
+| **RPC endpoint** | `https://cosmos-rpc.polkachu.com` | Publicly available node |
 | **Minimal block indexing** | `Yes` | We don't need additional block data |
 | **Blocks to prefetch** | `5` | Conservative setting for community nodes |
 | **Starting height** | `27790000` | Index from a recent height (adjust accordingly) |
@@ -303,136 +283,44 @@ This ensures proper type-checking for your custom events throughout the project.
 Open `src/index.ts` and modify it to include your custom module:
 
 ```typescript
-import {
-  defaultRegistryTypes,
-} from "@cosmjs/stargate";
-import {
-  PgIndexer, PgIndexerConfig,
-} from "@eclesia/basic-pg-indexer";
+>>>
 import {
   Blocks,
 } from "@eclesia/core-modules-pg";
 // Import your new custom module
-import {
-  IbcModule,
-} from "./modules/ibc_module";
++ import {
++   IbcModule,
++ } from "./modules/ibc_module";
+<<<
 
-const config: PgIndexerConfig = {
-  startHeight: Number(process.env.START_HEIGHT) || 27790000,
-  batchSize: Number(process.env.QUEUE_SIZE) || 5,
-  modules: [],
-  rpcUrl: process.env.RPC_ENDPOINT || "wss://cosmos-rpc.polkachu.com",
-  logLevel: process.env.LOG_LEVEL as PgIndexerConfig["logLevel"] ?? "debug",
-  usePolling: process.env.USE_POLLING == "true" || false,
-  pollingInterval: 3000,
-  processGenesis: process.env.PROCESS_GENESIS == "true" || false,
-  minimal: process.env.MINIMAL == "true" || false,
-  genesisPath: "./genesis.json",
-  dbConnectionString: process.env.PG_CONNECTION_STRING || "postgres://postgres:password@postgres:5432/indexer",
-};
-
-// Initialize protocol registry
-// You may need to import specific protocol registries for your chain
-const registry = defaultRegistryTypes.concat([]); // Add your chain's proto registry here eg. defaultRegistryTypes.concat(myCustomRegistryTypes)
-
+>>>
 // Initialize modules
 const blocksModule = new Blocks.MinimalBlocksModule(registry);
-const ibcModule = new IbcModule(registry); // Instantiate your new custom module
++ const ibcModule = new IbcModule(registry); // Instantiate your new custom module
 
-const indexer = new PgIndexer(config, [blocksModule, ibcModule]); // Pass your instantiated module here
-
-const run = async () => {
-  try {
-    await indexer.setup();
-    await indexer.run();
-  }
-  catch (error) {
-    console.error("Error running indexer:", error);
-    process.exit(1);
-  }
-};
-run();
++ const indexer = new PgIndexer(config, [blocksModule, ibcModule]); // Pass your instantiated module here
+<<<
 ```
 
 ## Step 8: Build and Run
 
 Build your project using your preferred package manager:
 
-<tabs>
-<tab label="npm">
-
 ```bash
-npm run build
+npm run build # or pnpm build or yarn build
 ```
-
-</tab>
-<tab label="pnpm">
-
-```bash
-pnpm run build
-```
-
-</tab>
-<tab label="yarn">
-
-```bash
-yarn run build
-```
-
-</tab>
-</tabs>
 
 Rebuild the Docker container:
 
-<tabs>
-<tab label="npm">
-
 ```bash
-npm run docker:build
+npm run docker:build # or pnpm docker:build or yarn docker:build
 ```
-
-</tab>
-<tab label="pnpm">
-
-```bash
-pnpm run docker:build
-```
-
-</tab>
-<tab label="yarn">
-
-```bash
-yarn run docker:build
-```
-
-</tab>
-</tabs>
 
 Start the indexer:
 
-<tabs>
-<tab label="npm">
-
 ```bash
-npm run local-dev:start
+npm run local-dev:start # or pnpm local-dev:start or yarn local-dev:start
 ```
-
-</tab>
-<tab label="pnpm">
-
-```bash
-pnpm local-dev:start
-```
-
-</tab>
-<tab label="yarn">
-
-```bash
-yarn local-dev:start
-```
-
-</tab>
-</tabs>
 
 ### Monitoring Progress
 

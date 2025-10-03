@@ -22,29 +22,9 @@ Save this file to a location you can reference later.
 
 Generate the indexer boilerplate depending on your preferred package manager:
 
-<tabs>
-<tab label="npm">
-
 ```bash
-npx create-eclesia-indexer@latest
+npx create-eclesia-indexer@latest # or pnpm create create-eclesia-indexer@latest or yarn create create-eclesia-indexer@latest
 ```
-
-</tab>
-<tab label="pnpm">
-
-```bash
-pnpm create eclesia-indexer
-```
-
-</tab>
-<tab label="yarn">
-
-```bash
-yarn create eclesia-indexer
-```
-
-</tab>
-</tabs>
 
 ## Step 2: Configuration Prompts
 
@@ -95,29 +75,9 @@ cd a1-indexer
 
 Start the indexer stack using your preferred package manager:
 
-<tabs>
-<tab label="npm">
-
 ```bash
-npm run local-dev:start
+npm run local-dev:start # or pnpm local-dev:start or yarn local-dev:start
 ```
-
-</tab>
-<tab label="pnpm">
-
-```bash
-pnpm local-dev:start
-```
-
-</tab>
-<tab label="yarn">
-
-```bash
-yarn local-dev:start
-```
-
-</tab>
-</tabs>
 
 ### What Happens Next
 
