@@ -16,10 +16,7 @@
   },
   "lint-staged": {
     "packages/**/*.{ts,tsx}": [
-      "eslint --fix"
-    ],
-    "packages/**/*.ts": [
-      "pnpm typecheck"
+      "pnpm lint:fix"
     ]
   },
   "keywords": [],
