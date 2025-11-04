@@ -8,7 +8,8 @@
     "lint": "pnpm recursive run --sort lint",
     "lint:fix": "pnpm recursive run --sort lint:fix",
     "typecheck": "pnpm recursive run --sort typecheck",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "pnpm recursive run --sort test",
+    "test:e2e": "vitest run --config tests/vitest.config.ts",
     "audit": "pnpm audit",
     "audit:fix": "pnpm audit --fix",
     "outdated": "pnpm outdated",
@@ -24,7 +25,9 @@
   "license": "ISC",
   "devDependencies": {
     "@changesets/cli": "^2.29.7",
+    "@types/node": "^22.14.0",
     "husky": "^9.1.7",
-    "lint-staged": "^16.2.6"
+    "lint-staged": "^16.2.6",
+    "vitest": "^3.2.4"
   }
 }
