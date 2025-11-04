@@ -11,12 +11,23 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "audit": "pnpm audit",
     "audit:fix": "pnpm audit --fix",
-    "outdated": "pnpm outdated"
+    "outdated": "pnpm outdated",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "packages/**/*.{ts,tsx}": [
+      "eslint --fix"
+    ],
+    "packages/**/*.ts": [
+      "pnpm typecheck"
+    ]
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@changesets/cli": "^2.29.7"
+    "@changesets/cli": "^2.29.7",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.6"
   }
 }
