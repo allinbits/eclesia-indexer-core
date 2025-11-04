@@ -58,6 +58,76 @@ import {
   BankModule,
 } from "../cosmos.bank.v1beta1/index.js";
 
+/** Genesis transaction pubkey structure */
+interface GenesisPubkey {
+  "@type": string
+  key: string
+}
+
+/** Genesis transaction for creating a validator */
+interface GenesisCreateValidator {
+  delegator_address: string
+  validator_address: string
+  pubkey: GenesisPubkey
+  value: {
+    denom: string
+    amount: string
+  }
+  description: {
+    moniker: string
+    identity?: string
+    website?: string
+    security_contact?: string
+    details?: string
+  }
+  commission: {
+    rate: string
+    max_rate: string
+    max_change_rate: string
+  }
+  min_self_delegation: string
+}
+
+/** Genesis staking parameters */
+interface GenesisStakingParams {
+  unbonding_time: string
+  max_validators: number
+  max_entries: number
+  historical_entries: number
+  bond_denom: string
+  min_commission_rate: string
+}
+
+/** Genesis validator structure */
+interface GenesisValidator {
+  operator_address: string
+  consensus_pubkey: {
+    pubkey: GenesisPubkey
+  }
+  jailed: boolean
+  status: number
+  tokens: string
+  delegator_shares: string
+  description: {
+    moniker: string
+    identity?: string
+    website?: string
+    security_contact?: string
+    details?: string
+  }
+  unbonding_height: string
+  unbonding_time: string
+  commission: {
+    commission_rates: {
+      rate: string
+      max_rate: string
+      max_change_rate: string
+    }
+    update_time: string
+  }
+  min_self_delegation: string
+}
+
 /** Events emitted by the Staking module for various staking operations */
 export type Events = {
   "/cosmos.staking.v1beta1.MsgEditValidator": {
@@ -77,18 +147,15 @@ export type Events = {
   }
 
   "gentx/cosmos.staking.v1beta1.MsgCreateValidator": {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    value: any
+    value: GenesisCreateValidator
   }
 
   "genesis/value/app_state.staking.params": {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    value: any
+    value: GenesisStakingParams
   }
 
   "genesis/array/app_state.staking.validators": {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    value: any[]
+    value: GenesisValidator[]
   }
 };
 
@@ -193,17 +260,14 @@ export class StakingModule implements Types.IndexingModule {
         const db = this.pgIndexer.getInstance();
         const consensus_address = Utils.chainAddressfromKeyhash(
           this.chainPrefix + "valcons", createHash("sha256")
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .update(Buffer.from((event.value.pubkey as any).key, "base64"))
+            .update(Buffer.from(event.value.pubkey.key, "base64"))
             .digest("hex")
             .slice(0, 40),
         );
         const consensus_pubkey
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          = (event.value.pubkey as any)["@type"]
+          = event.value.pubkey["@type"]
             + "("
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            + Buffer.from((event.value.pubkey as any).key, "base64").toString("hex")
+            + Buffer.from(event.value.pubkey.key, "base64").toString("hex")
             + ")";
         await db.query({
           name: "save-validator",
