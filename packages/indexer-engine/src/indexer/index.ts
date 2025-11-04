@@ -883,6 +883,24 @@ export class EcleciaIndexer extends EclesiaEmitter {
           filter,
         }));
         let counter = 0;
+        let chunkCounter = 0;
+
+        // Wrapper processor that handles transaction chunking
+        const chunkProcessor = async (data: unknown) => {
+          chunkCounter++;
+          this.log.debug(`Processing genesis chunk ${chunkCounter}`);
+
+          await processor(data);
+
+          // Commit and restart transaction every 5 chunks (5000 entries)
+          // This prevents timeout on large genesis files
+          if (chunkCounter % 5 === 0) {
+            this.log.debug(`Committing transaction after chunk ${chunkCounter}`);
+            await this.config.endTransaction(true);
+            await this.config.beginTransaction();
+          }
+        };
+
         chain([
           this.readGenesis(),
           ...pickers,
@@ -890,7 +908,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
           Batch.batch({
             batchSize: GENESIS_BATCH_SIZE,
           }),
-          processor,
+          chunkProcessor,
         ])
           .on("data",
             (data) => {
@@ -900,7 +918,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
             })
           .on("end",
             () => {
-              this.log.info(`Processed ${counter} entries`);
+              this.log.info(`Processed ${counter} entries in ${chunkCounter} chunks`);
               resolve(true);
             });
       }
