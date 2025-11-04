@@ -8,7 +8,8 @@
     "postbuild": "copyfiles -u 1 \"src/**/*.sql\" dist",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "test": "vitest"
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "files": [
     "dist/"

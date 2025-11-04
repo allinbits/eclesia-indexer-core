@@ -1,3 +1,4 @@
+/* eslint-disable @stylistic/no-multi-spaces */
 // Utility function exports
 export * from "./bech32";  // Bech32 address encoding/decoding utilities
 export * from "./bigint";  // BigInt handling utilities

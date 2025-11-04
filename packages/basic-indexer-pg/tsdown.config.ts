@@ -1,3 +1,4 @@
+/* eslint-disable @stylistic/no-multi-spaces */
 import {
   defineConfig,
 } from "tsdown";

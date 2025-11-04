@@ -10,6 +10,7 @@
     "build": "tsc --noEmit && tsdown",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
+    "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
   "files": [
