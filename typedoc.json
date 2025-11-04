@@ -1,0 +1,33 @@
+{
+  "entryPoints": [
+    "packages/indexer-engine/src/index.ts",
+    "packages/basic-indexer-pg/src/index.ts",
+    "packages/core-modules/src/index.ts"
+  ],
+  "out": "docs/api",
+  "name": "Eclesia Indexer Core API",
+  "readme": "README.md",
+  "includeVersion": true,
+  "sort": ["source-order"],
+  "categorizeByGroup": true,
+  "defaultCategory": "Core",
+  "categoryOrder": [
+    "Core",
+    "Indexer Engine",
+    "Database",
+    "Modules",
+    "Utilities",
+    "*"
+  ],
+  "navigation": {
+    "includeCategories": true,
+    "includeGroups": true
+  },
+  "plugin": [],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.bench.ts",
+    "**/node_modules/**",
+    "**/dist/**"
+  ]
+}
