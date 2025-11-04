@@ -238,7 +238,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
     (err) => {
       if (err) {
         this.log.error(err);
-        process.exit(1);
+        this.emit("fatal-error", {
+          error: err,
+          message: "Failed to start health check server",
+        });
       }
     });
   }
@@ -464,7 +467,11 @@ export class EcleciaIndexer extends EclesiaEmitter {
     }
     else {
       this.log.info("Indexer failed too many times. Exiting.");
-      process.exit(1);
+      this.emit("fatal-error", {
+        error: new Error("Max retry attempts exceeded"),
+        message: "Indexer failed too many times",
+        retryCount: this.retryCount,
+      });
     }
   }
 

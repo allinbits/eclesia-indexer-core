@@ -75,6 +75,11 @@ export type UUIDEvent = {
 export type Events = {
   log: LogEvent
   uuid: UUIDEvent
+  "fatal-error": {
+    error: Error
+    message: string
+    retryCount?: number
+  }
   begin_block: {
     value: {
       events: BlockResultsResponse["beginBlockEvents"] | BlockResultsResponse38["finalizeBlockEvents"]
