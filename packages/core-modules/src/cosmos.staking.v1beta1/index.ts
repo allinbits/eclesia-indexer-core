@@ -15,7 +15,7 @@ import {
   EcleciaIndexer, PAGINATION_LIMITS, Types,
 } from "@eclesia/indexer-engine";
 import {
-  Utils,
+  Utils, Validation,
 } from "@eclesia/indexer-engine";
 import BigNumber from "bignumber.js";
 import {
@@ -134,8 +134,13 @@ export class StakingModule implements Types.IndexingModule {
   /** Cache of validator status and delegation information */
   public validatorCache = new Map<string, CachedValidator>();
 
+  /** Validated chain prefix for address generation */
+  private chainPrefix: string;
+
   constructor(registry: [string, GeneratedType][]) {
     this.registry = registry;
+    // Validate and cache chain prefix at initialization
+    this.chainPrefix = Validation.getChainPrefix("cosmos");
   }
 
   async cacheValidatorData() {
@@ -187,7 +192,7 @@ export class StakingModule implements Types.IndexingModule {
       "gentx/cosmos.staking.v1beta1.MsgCreateValidator", async (event): Promise<void> => {
         const db = this.pgIndexer.getInstance();
         const consensus_address = Utils.chainAddressfromKeyhash(
-          (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", createHash("sha256")
+          this.chainPrefix + "valcons", createHash("sha256")
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
             .update(Buffer.from((event.value.pubkey as any).key, "base64"))
             .digest("hex")
@@ -309,7 +314,7 @@ export class StakingModule implements Types.IndexingModule {
             ? EdPubKey.decode(msg.pubkey.value)
             : SecpPubKey.decode(msg.pubkey?.value ?? new Uint8Array());
         const consensus_address = Utils.chainAddressfromKeyhash(
-          (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", createHash("sha256").update(key.key).digest("hex").slice(0, 40),
+          this.chainPrefix + "valcons", createHash("sha256").update(key.key).digest("hex").slice(0, 40),
         );
         const consensus_pubkey
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -382,7 +387,7 @@ export class StakingModule implements Types.IndexingModule {
       for (let i = 0; i < validators.length; i++) {
         const validator = validators[i];
         const consensus_address = Utils.chainAddressfromKeyhash(
-          (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", createHash("sha256")
+          this.chainPrefix + "valcons", createHash("sha256")
             .update(Buffer.from(validator.consensus_pubkey.pubkey.key, "base64"))
             .digest("hex")
             .slice(0, 40),
@@ -406,7 +411,7 @@ export class StakingModule implements Types.IndexingModule {
             consensus_address,
             validator.operator_address,
             Utils.chainAddressfromKeyhash(
-              process.env.CHAIN_PREFIX ?? "cosmos", Utils.keyHashfromAddress(validator.operator_address),
+              this.chainPrefix, Utils.keyHashfromAddress(validator.operator_address),
             ),
             validator.commission.commission_rates.max_change_rate,
             validator.commission.commission_rates.max_rate,

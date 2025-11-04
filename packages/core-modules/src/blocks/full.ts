@@ -23,7 +23,7 @@ import {
   EcleciaIndexer, Types,
 } from "@eclesia/indexer-engine";
 import {
-  Utils,
+  Utils, Validation,
 } from "@eclesia/indexer-engine";
 import {
   Tx,
@@ -59,8 +59,13 @@ export class FullBlocksModule implements Types.IndexingModule {
   /** This module provides both blocks and transactions data */
   public provides: string[] = ["blocks", "transactions"];
 
+  /** Validated chain prefix for address generation */
+  private chainPrefix: string;
+
   constructor(registry: [string, GeneratedType][]) {
     this.registry = registry;
+    // Validate and cache chain prefix at initialization
+    this.chainPrefix = Validation.getChainPrefix("cosmos");
   }
 
   /**
@@ -126,14 +131,14 @@ export class FullBlocksModule implements Types.IndexingModule {
           calculateGas(block_results).toString(),
           // Convert proposer address to bech32 format with validator consensus prefix
           Utils.chainAddressfromKeyhash(
-            (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", Buffer.from(block.block.header.proposerAddress).toString("hex"),
+            this.chainPrefix + "valcons", Buffer.from(block.block.header.proposerAddress).toString("hex"),
           ),
           block.block.header.time,
           // Store validator signatures in structured JSON format
           JSONStringify(block.block.lastCommit?.signatures.map((x) => {
             return {
               validator: Utils.chainAddressfromKeyhash(
-                (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", Buffer.from(x.validatorAddress ?? new Uint8Array()).toString("hex"),
+                this.chainPrefix + "valcons", Buffer.from(x.validatorAddress ?? new Uint8Array()).toString("hex"),
               ),
               block_id: x.blockIdFlag,
             };

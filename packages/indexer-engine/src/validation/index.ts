@@ -157,3 +157,33 @@ export function validatePositiveInteger(value: number, fieldName: string = "Valu
     });
   }
 }
+
+/**
+ * Gets and validates the chain prefix from environment variables
+ * @param defaultPrefix - Default prefix to use if environment variable is not set
+ * @returns The validated chain prefix
+ * @throws {ConfigurationError} If chain prefix is invalid
+ */
+export function getChainPrefix(defaultPrefix: string = "cosmos"): string {
+  const prefix = process.env.CHAIN_PREFIX ?? defaultPrefix;
+
+  if (!prefix || typeof prefix !== "string") {
+    throw new ConfigurationError("CHAIN_PREFIX must be a non-empty string", {
+      value: prefix,
+      defaultPrefix,
+    });
+  }
+
+  // Validate prefix format (lowercase alphanumeric)
+  if (!/^[a-z][a-z0-9]*$/.test(prefix)) {
+    throw new ConfigurationError(
+      "CHAIN_PREFIX must start with lowercase letter and contain only lowercase letters and numbers",
+      {
+        value: prefix,
+        pattern: "^[a-z][a-z0-9]*$",
+      },
+    );
+  }
+
+  return prefix;
+}

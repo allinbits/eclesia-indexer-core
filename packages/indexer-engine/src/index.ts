@@ -6,3 +6,4 @@ export * from "./indexer"; // Main indexer class
 export * from "./promise-queue"; // Asynchronous queue management
 export * as Types from "./types"; // TypeScript type definitions
 export * as Utils from "./utils"; // Utility functions
+export * as Validation from "./validation"; // Configuration validation utilities
