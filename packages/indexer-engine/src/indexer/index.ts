@@ -57,6 +57,9 @@ import {
 import {
   decodeAttr,
 } from "../utils/index.js";
+import {
+  validateFilePath, validatePort, validatePositiveInteger, validateUrl,
+} from "../validation/index.js";
 
 /** Default configuration for the Eclesia indexer */
 export const defaultIndexerConfig = {
@@ -127,6 +130,31 @@ export class EcleciaIndexer extends EclesiaEmitter {
    */
   constructor(config: EcleciaIndexerConfig) {
     super();
+
+    // Validate required configuration
+    validateUrl(config.rpcUrl, "rpcUrl");
+    validatePositiveInteger(config.batchSize, "batchSize");
+
+    // Validate optional genesis path if processing genesis
+    if (config.genesisPath) {
+      validateFilePath(config.genesisPath, "genesisPath");
+    }
+
+    // Validate health check port if provided
+    if (config.healthCheckPort !== undefined) {
+      validatePort(config.healthCheckPort, "healthCheckPort");
+    }
+
+    // Validate start height if provided
+    if (config.startHeight !== undefined) {
+      validatePositiveInteger(config.startHeight, "startHeight");
+    }
+
+    // Validate polling interval if provided
+    if (config.pollingInterval !== undefined) {
+      validatePositiveInteger(config.pollingInterval, "pollingInterval");
+    }
+
     this.config = {
       ...defaultIndexerConfig,
       ...config,

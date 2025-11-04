@@ -1,6 +1,6 @@
 /* eslint-disable @stylistic/no-multi-spaces */
 import {
-  DB_CLIENT_RECYCLE_COUNT, EcleciaIndexer,
+  ConfigurationError, DB_CLIENT_RECYCLE_COUNT, EcleciaIndexer,
 } from "@eclesia/indexer-engine";
 import {
   Types, Utils,
@@ -8,6 +8,32 @@ import {
 import {
   Client,
 } from "pg";
+
+/**
+ * Validates a PostgreSQL connection string
+ * @param connectionString - The connection string to validate
+ * @throws {ConfigurationError} If connection string is invalid
+ */
+function validatePostgresConnectionString(connectionString: string): void {
+  if (!connectionString || typeof connectionString !== "string") {
+    throw new ConfigurationError("Database connection string is required and must be a string", {
+      value: connectionString,
+    });
+  }
+
+  // Basic PostgreSQL connection string format validation
+  // Format: postgres://user:password@host:port/database
+  const pgRegex = /^postgres(?:ql)?:\/\/(?:([^:]+)(?::([^@]+))?@)?([^:/]+)(?::(\d+))?\/(.+)$/;
+
+  if (!pgRegex.test(connectionString)) {
+    throw new ConfigurationError(
+      "Database connection string must be in format: postgres://user:password@host:port/database",
+      {
+        format: "postgres://user:password@host:port/database",
+      },
+    );
+  }
+}
 
 /** Configuration options for the PostgreSQL indexer */
 export type PgIndexerConfig = {
@@ -66,6 +92,9 @@ export class PgIndexer {
    * @param modules - Optional array of indexing modules to install immediately
    */
   constructor(config: PgIndexerConfig, modules: Types.IndexingModule[] = []) {
+    // Validate database connection string
+    validatePostgresConnectionString(config.dbConnectionString);
+
     this.config = config;
 
     // Initialize PostgreSQL client with connection string
