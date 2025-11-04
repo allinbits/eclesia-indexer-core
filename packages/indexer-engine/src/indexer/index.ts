@@ -160,15 +160,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
       ...config,
     };
 
-    // Initialize block queue based on minimal or full indexing mode
-    if (this.config.minimal) {
-      // Minimal mode: only store block and block results
-      this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse]>(this.config.batchSize);
-    }
-    else {
-      // Full mode: also store validator information
-      this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse, Uint8Array]>(this.config.batchSize);
-    }
+    // Initialize logger first so it can be used by queue error handler
     const {
       printf,
     } = winston.format;
@@ -201,6 +193,21 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }),
       ],
     });
+
+    // Initialize block queue based on minimal or full indexing mode
+    // Pass error handler that uses the logger
+    const queueErrorHandler = (e: unknown) => {
+      this.log.error("Error enqueueing block data: " + e);
+    };
+
+    if (this.config.minimal) {
+      // Minimal mode: only store block and block results
+      this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse]>(this.config.batchSize, queueErrorHandler);
+    }
+    else {
+      // Full mode: also store validator information
+      this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse, Uint8Array]>(this.config.batchSize, queueErrorHandler);
+    }
     this.fastify = Fastify({
       logger: false,
     });
