@@ -65,6 +65,7 @@ export const defaultIndexerConfig = {
   pollingInterval: 5000,                              // Poll every 5 seconds when polling enabled
   shouldProcessGenesis: () => false,                  // Skip genesis processing by default
   minimal: true,                                      // Use minimal indexing by default
+  healthCheckPort: 8080,                              // Default health check port
   init: () => Promise.resolve(),                      // No-op initialization function
   beginTransaction: () => Promise.resolve(),          // No-op transaction begin function
   endTransaction: (_status: boolean) => Promise.resolve(), // No-op transaction end function
@@ -189,8 +190,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
           : 503;
         reply.code(code).send(this.healthCheck);
       });
+    const healthPort = this.config.healthCheckPort
+      ?? (process.env.HEALTH_CHECK_PORT ? parseInt(process.env.HEALTH_CHECK_PORT, 10) : 8080);
     this.fastify.listen({
-      port: 80,
+      port: healthPort,
       host: "0.0.0.0",
     },
     (err) => {

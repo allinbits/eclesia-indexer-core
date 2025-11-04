@@ -33,6 +33,7 @@ export type EcleciaIndexerConfig = {
   usePolling?: boolean                                           // Use polling instead of WebSocket subscription
   pollingInterval?: number                                       // Interval between polls in milliseconds
   minimal?: boolean                                              // Use minimal indexing mode (blocks only)
+  healthCheckPort?: number                                       // Port for health check HTTP server (default: 8080)
   init?: () => Promise<void>                                     // Custom initialization function
   beginTransaction: () => Promise<void>                          // Function to begin database transaction
   endTransaction: (status: boolean) => Promise<void>            // Function to end database transaction
