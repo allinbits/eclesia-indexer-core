@@ -10,6 +10,7 @@
     "typecheck": "pnpm recursive run --sort typecheck",
     "test": "pnpm recursive run --sort test",
     "test:e2e": "vitest run --config tests/vitest.config.ts",
+    "bench": "vitest bench --config benchmarks/vitest.config.ts",
     "audit": "pnpm audit",
     "audit:fix": "pnpm audit --fix",
     "outdated": "pnpm outdated",
