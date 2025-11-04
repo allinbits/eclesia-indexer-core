@@ -53,6 +53,9 @@ import {
 import {
   JSONStringify,
 } from "json-with-bigint";
+import {
+  LRUCache,
+} from "lru-cache";
 
 import {
   BankModule,
@@ -195,11 +198,15 @@ export class StakingModule implements Types.IndexingModule {
 
   public provides: string[] = ["cosmos.staking.v1beta1"];
 
-  /** Cache mapping operator addresses to consensus addresses */
-  public validatorAddressCache = new Map<string, string>();
+  /** LRU cache mapping operator addresses to consensus addresses (max 1000 entries) */
+  public validatorAddressCache = new LRUCache<string, string>({
+    max: 1000,
+  });
 
-  /** Cache of validator status and delegation information */
-  public validatorCache = new Map<string, CachedValidator>();
+  /** LRU cache of validator status and delegation information (max 500 entries) */
+  public validatorCache = new LRUCache<string, CachedValidator>({
+    max: 500,
+  });
 
   /** Validated chain prefix for address generation */
   private chainPrefix: string;

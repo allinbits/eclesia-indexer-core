@@ -129,6 +129,9 @@ importers:
       json-with-bigint:
         specifier: ^3.4.4
         version: 3.4.4
+      lru-cache:
+        specifier: ^11.2.2
+        version: 11.2.2
     devDependencies:
       '@arethetypeswrong/core':
         specifier: ^0.18.2
@@ -148,6 +151,9 @@ importers:
       '@types/json-bigint':
         specifier: ^1.0.4
         version: 1.0.4
+      '@types/lru-cache':
+        specifier: ^7.10.10
+        version: 7.10.10
       '@types/node':
         specifier: ^22.14.0
         version: 22.18.6
@@ -939,6 +945,10 @@ packages:
 
   '@types/jsonfile@6.1.4':
     resolution: {integrity: sha512-D5qGUYwjvnNNextdU59/+fI+spnwtTFmyQP0h+PfIOSkNfpU6AOICUOkm4i0OnSk+NyjdPJrxCDro0sJsWlRpQ==}
+
+  '@types/lru-cache@7.10.10':
+    resolution: {integrity: sha512-nEpVRPWW9EBmx2SCfNn3ClYxPL7IktPX12HhIoSc/H5mMjdeW3+YsXIpseLQ2xF35+OcpwKQbEUw5VtqE4PDNA==}
+    deprecated: This is a stub types definition. lru-cache provides its own type definitions, so you do not need this installed.
 
   '@types/node@12.20.55':
     resolution: {integrity: sha512-J8xLz7q2OFulZ2cyGTLE1TbbZcjpno7FaN6zdJNrgAdrJ+DZzh/uFR6YrTb4C+nXakvud8Q4+rbhoIWlYQbUFQ==}
@@ -1763,8 +1773,8 @@ packages:
   loupe@3.2.1:
     resolution: {integrity: sha512-CdzqowRJCeLU72bHvWqwRBBlLcMEtIvGrlvef74kMnV2AolS9Y8xUv1I0U/MNAWMhBlKIoyuEgoJ0t/bbwHbLQ==}
 
-  lru-cache@11.2.1:
-    resolution: {integrity: sha512-r8LA6i4LP4EeWOhqBaZZjDWwehd1xUJPCJd9Sv300H0ZmcUER4+JPh7bqqZeqs1o5pgtgvXm+d9UGrB5zZGDiQ==}
+  lru-cache@11.2.2:
+    resolution: {integrity: sha512-F9ODfyqML2coTIsQpSkRHnLSZMtkU8Q+mSfcaIyKwy58u+8k5nvAYeiNhsyMARvzNcXJ9QfWVrcPsC9e9rAxtg==}
     engines: {node: 20 || >=22}
 
   magic-string@0.30.19:
@@ -2539,7 +2549,7 @@ snapshots:
       '@loaderkit/resolve': 1.0.4
       cjs-module-lexer: 1.4.3
       fflate: 0.8.2
-      lru-cache: 11.2.1
+      lru-cache: 11.2.2
       semver: 7.7.2
       typescript: 5.6.1-rc
       validate-npm-package-name: 5.0.1
@@ -3181,6 +3191,10 @@ snapshots:
   '@types/jsonfile@6.1.4':
     dependencies:
       '@types/node': 22.18.6
+
+  '@types/lru-cache@7.10.10':
+    dependencies:
+      lru-cache: 11.2.2
 
   '@types/node@12.20.55': {}
 
@@ -4059,7 +4073,7 @@ snapshots:
 
   loupe@3.2.1: {}
 
-  lru-cache@11.2.1: {}
+  lru-cache@11.2.2: {}
 
   magic-string@0.30.19:
     dependencies:
