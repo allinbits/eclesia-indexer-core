@@ -237,6 +237,8 @@ export class PgIndexer {
       if (status) {
         await this.db.query("COMMIT");
         this.indexer.log.silly("Transaction committed");
+        // Only increment counter on successful commit
+        this.clientReuse++;
       }
       else {
         await this.db.query("ROLLBACK");
@@ -249,7 +251,6 @@ export class PgIndexer {
     }
     finally {
       // Database client recycling to prevent long-running connection issues
-      this.clientReuse++;
       if (this.clientReuse >= 1500) {
         this.indexer.log.info("Recycling database client");
         await this.db.end();
