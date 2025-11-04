@@ -41,6 +41,10 @@ import {
 import * as winston from "winston";
 
 import {
+  DEFAULT_BATCH_SIZE, DEFAULT_HEALTH_CHECK_PORT, DEFAULT_POLLING_INTERVAL_MS, DEFAULT_START_HEIGHT,
+  GENESIS_BATCH_SIZE, PAGINATION_LIMITS, PERIODIC_INTERVALS, QUEUE_DEQUEUE_TIMEOUT_MS, RPC_TIMEOUT_MS,
+} from "../constants.js";
+import {
   EclesiaEmitter,
 } from "../emitter/index.js";
 import {
@@ -56,16 +60,16 @@ import {
 
 /** Default configuration for the Eclesia indexer */
 export const defaultIndexerConfig = {
-  startHeight: 1,                                     // Start indexing from block 1
-  batchSize: 500,                                     // Process blocks in batches of 500
+  startHeight: DEFAULT_START_HEIGHT,                  // Start indexing from block 1
+  batchSize: DEFAULT_BATCH_SIZE,                      // Process blocks in batches of 500
   modules: [],                                        // No modules enabled by default
-  getNextHeight: () => 1,                            // Default height retrieval function
+  getNextHeight: () => DEFAULT_START_HEIGHT,         // Default height retrieval function
   logLevel: "info" as EcleciaIndexerConfig["logLevel"], // Default log level
   usePolling: false,                                  // Use WebSocket subscription by default
-  pollingInterval: 5000,                              // Poll every 5 seconds when polling enabled
+  pollingInterval: DEFAULT_POLLING_INTERVAL_MS,       // Poll every 5 seconds when polling enabled
   shouldProcessGenesis: () => false,                  // Skip genesis processing by default
   minimal: true,                                      // Use minimal indexing by default
-  healthCheckPort: 8080,                              // Default health check port
+  healthCheckPort: DEFAULT_HEALTH_CHECK_PORT,         // Default health check port
   init: () => Promise.resolve(),                      // No-op initialization function
   beginTransaction: () => Promise.resolve(),          // No-op transaction begin function
   endTransaction: (_status: boolean) => Promise.resolve(), // No-op transaction end function
@@ -335,7 +339,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         let height, timestamp;
         if (this.isMinimal(this.blockQueue)) {
           const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((resolve, reject) => {
-            setTimeout(reject, 30000, []);
+            setTimeout(reject, QUEUE_DEQUEUE_TIMEOUT_MS, []);
           });
           const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
           this.log.silly("Retrieved block data");
@@ -349,7 +353,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }
         else {
           const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((resolve, reject) => {
-            setTimeout(reject, 30000, []);
+            setTimeout(reject, QUEUE_DEQUEUE_TIMEOUT_MS, []);
           });
           const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
           this.log.silly("Retrieved block data");
@@ -365,7 +369,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
             QueryValidatorsResponse.decode(toProcess[2]).validators);
         }
         // Emit events to trigger periodic operations every 50, 100 and 1000 blocks
-        if (height % 1000 == 0) {
+        if (height % PERIODIC_INTERVALS.LARGE == 0) {
           const hrTime = process.hrtime();
           const newms = hrTime[0] * 1000000 + hrTime[1] / 1000;
           const duration = newms - ms;
@@ -379,7 +383,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
               timestamp,
             });
         }
-        if (height % 100 == 0) {
+        if (height % PERIODIC_INTERVALS.MEDIUM == 0) {
           await this.asyncEmit("periodic/100",
             {
               value: null,
@@ -387,7 +391,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
               timestamp,
             });
         }
-        if (height % 50 == 0) {
+        if (height % PERIODIC_INTERVALS.SMALL == 0) {
           await this.asyncEmit("periodic/50",
             {
               value: null,
@@ -665,7 +669,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         if (this.isMinimal(this.blockQueue)) {
           const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse]> = new Promise((resolve, reject) => {
             setTimeout(reject,
-              20000,
+              RPC_TIMEOUT_MS,
               false);
           });
           const toIndex = Promise.race([Promise.all([this.blockClient.block(i) as Promise<BlockResponse>, this.blockClient.blockResults(i) as Promise<BlockResultsResponse>]), timeoutPromise]).catch((e) => {
@@ -678,12 +682,12 @@ export class EcleciaIndexer extends EclesiaEmitter {
         else {
           const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse, Uint8Array]> = new Promise((resolve, reject) => {
             setTimeout(reject,
-              20000,
+              RPC_TIMEOUT_MS,
               false);
           });
           const q = QueryValidatorsRequest.fromPartial({
             pagination: {
-              limit: 1000n,
+              limit: PAGINATION_LIMITS.VALIDATORS,
             },
           });
           const vals = QueryValidatorsRequest.encode(q).finish();
@@ -842,7 +846,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
           ...pickers,
           StreamArray.streamArray(),
           Batch.batch({
-            batchSize: 1000,
+            batchSize: GENESIS_BATCH_SIZE,
           }),
           processor,
         ])

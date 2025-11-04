@@ -12,7 +12,7 @@ import {
   PgIndexer,
 } from "@eclesia/basic-pg-indexer";
 import {
-  EcleciaIndexer, Types,
+  EcleciaIndexer, PAGINATION_LIMITS, Types,
 } from "@eclesia/indexer-engine";
 import {
   Utils,
@@ -728,11 +728,11 @@ export class StakingModule implements Types.IndexingModule {
         while (hasMore) {
           const pagination = nextKey
             ? {
-              limit: 250n,
+              limit: PAGINATION_LIMITS.DELEGATIONS,
               key: nextKey,
             }
             : {
-              limit: 250n,
+              limit: PAGINATION_LIMITS.DELEGATIONS,
             };
           const q = QueryValidatorDelegationsRequest.fromPartial({
             validatorAddr: validators[i].operatorAddress,

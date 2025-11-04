@@ -1,4 +1,5 @@
 // Core indexer engine exports
+export * from "./constants"; // Configuration constants
 export * from "./emitter"; // Event emitter infrastructure
 export * from "./indexer"; // Main indexer class
 export * from "./promise-queue"; // Asynchronous queue management

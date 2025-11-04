@@ -1,6 +1,6 @@
 /* eslint-disable @stylistic/no-multi-spaces */
 import {
-  EcleciaIndexer,
+  DB_CLIENT_RECYCLE_COUNT, EcleciaIndexer,
 } from "@eclesia/indexer-engine";
 import {
   Types, Utils,
@@ -251,7 +251,7 @@ export class PgIndexer {
     }
     finally {
       // Database client recycling to prevent long-running connection issues
-      if (this.clientReuse >= 1500) {
+      if (this.clientReuse >= DB_CLIENT_RECYCLE_COUNT) {
         this.indexer.log.info("Recycling database client");
         await this.db.end();
         this.db = new Client(this.config.dbConnectionString);
