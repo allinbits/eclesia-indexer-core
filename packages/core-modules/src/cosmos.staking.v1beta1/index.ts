@@ -886,8 +886,8 @@ export class StakingModule implements Types.IndexingModule {
         });
       }
       catch (_e) {
-
-      /* Validator created in this block */
+        // Validator may have been created in this block and not yet cached
+        this.indexer.log.debug(`Validator ${val.operatorAddress} not found in cache, likely created in current block`);
       }
     }
   }
