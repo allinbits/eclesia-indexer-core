@@ -24,6 +24,7 @@
     "add-prometheus-metrics",
     "add-security-docs",
     "add-troubleshooting-guide",
+    "bright-streets-melt",
     "chunked-genesis-processing",
     "configurable-health-check-port",
     "configuration-validation",

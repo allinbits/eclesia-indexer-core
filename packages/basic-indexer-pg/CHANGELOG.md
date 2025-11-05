@@ -1,5 +1,11 @@
 # @eclesia/basic-pg-indexer
 
+## 2.10.0-next.1
+
+### Patch Changes
+
+- Add prometheus config options to PgIndexer
+
 ## 2.10.0-next.0
 
 ### Minor Changes

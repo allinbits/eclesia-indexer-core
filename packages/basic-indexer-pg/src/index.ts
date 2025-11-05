@@ -47,6 +47,8 @@ export type PgIndexerConfig = {
   pollingInterval: number                    // Interval between polls (ms) when using polling
   minimal: boolean                           // Whether to use minimal indexing (blocks only)
   genesisPath?: string                       // Path to genesis file for processing
+  enablePrometheus: boolean                  // Enable Prometheus metrics server
+  prometheusPort: number                     // Prometheus metrics server port
   dbConnectionString: string                 // PostgreSQL connection string
 };
 
