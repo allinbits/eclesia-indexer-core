@@ -180,6 +180,96 @@ export class IndexerMetrics {
   }
 
   /**
+   * Records block processing duration
+   * @param durationSeconds - Duration in seconds
+   */
+  recordBlockProcessing(durationSeconds: number) {
+    this.blockProcessingDuration.observe(durationSeconds);
+  }
+
+  /**
+   * Times a block processing operation
+   * @returns End timer function to call when operation completes
+   */
+  timeBlockProcessing() {
+    return this.blockProcessingDuration.startTimer();
+  }
+
+  /**
+   * Records RPC call duration
+   * @param method - RPC method name
+   * @param durationSeconds - Duration in seconds
+   */
+  recordRpcCall(method: string, durationSeconds: number) {
+    this.rpcCallDuration.observe({
+      method,
+    }, durationSeconds);
+  }
+
+  /**
+   * Times an RPC call operation
+   * @param method - RPC method name
+   * @returns End timer function to call when operation completes
+   */
+  timeRpcCall(method: string) {
+    return this.rpcCallDuration.startTimer({
+      method,
+    });
+  }
+
+  /**
+   * Records database query duration
+   * @param queryType - Type of query (select, insert, update, delete, etc.)
+   * @param durationSeconds - Duration in seconds
+   */
+  recordDatabaseQuery(queryType: string, durationSeconds: number) {
+    this.databaseQueryDuration.observe({
+      query_type: queryType,
+    }, durationSeconds);
+  }
+
+  /**
+   * Times a database query operation
+   * @param queryType - Type of query (select, insert, update, delete, etc.)
+   * @returns End timer function to call when operation completes
+   */
+  timeDatabaseQuery(queryType: string) {
+    return this.databaseQueryDuration.startTimer({
+      query_type: queryType,
+    });
+  }
+
+  /**
+   * Updates the retry count gauge
+   * @param count - Current retry count
+   */
+  updateRetryCount(count: number) {
+    this.retryCount.set(count);
+  }
+
+  /**
+   * Increments the retry count gauge by 1
+   */
+  incrementRetryCount() {
+    this.retryCount.inc();
+  }
+
+  /**
+   * Resets the retry count gauge to 0
+   */
+  resetRetryCount() {
+    this.retryCount.set(0);
+  }
+
+  /**
+   * Records transactions processed
+   * @param count - Number of transactions to record (defaults to 1)
+   */
+  recordTransactions(count: number = 1) {
+    this.transactionsProcessed.inc(count);
+  }
+
+  /**
    * Gets metrics in Prometheus format
    * @returns Prometheus metrics string
    */

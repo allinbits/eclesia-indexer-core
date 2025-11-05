@@ -1,5 +1,11 @@
 # @eclesia/core-modules-pg
 
+## 2.10.0-next.1
+
+### Patch Changes
+
+- Collect additional metrics
+
 ## 2.10.0-next.0
 
 ### Minor Changes

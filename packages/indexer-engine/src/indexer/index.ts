@@ -89,7 +89,7 @@ export const defaultIndexerConfig = {
  */
 export class EcleciaIndexer extends EclesiaEmitter {
   /** Indexer configuration settings */
-  private config: EcleciaIndexerConfig;
+  public config: EcleciaIndexerConfig;
 
   /** Fastify HTTP server for health checks */
   private fastify: FastifyInstance;
@@ -110,7 +110,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
   private initialized = false;
 
   /** Prometheus metrics server instance */
-  private prometheus: IndexerMetrics | null = null;
+  public prometheus: IndexerMetrics | null = null;
 
   /** Number of retry attempts for error recovery */
   private retryCount = 0;
@@ -208,6 +208,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     // Initialize block queue based on minimal or full indexing mode
     // Pass error handler that uses the logger
     const queueErrorHandler = (e: unknown) => {
+      this.prometheus?.recordError("block_queue");
       this.log.error("Error enqueueing block data: " + e);
     };
 
@@ -237,9 +238,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
       (err) => {
         if (err) {
           this.log.error(err);
+          this.prometheus?.recordError("metrics_server");
           this.emit("fatal-error", {
             error: err,
-            message: "Failed to start health check server",
+            message: "Failed to start metrics server",
           });
         }
       });
@@ -274,6 +276,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     (err) => {
       if (err) {
         this.log.error(err);
+        this.prometheus?.recordError("health_check_server");
         this.emit("fatal-error", {
           error: err,
           message: "Failed to start health check server",
@@ -323,6 +326,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     }
     catch (error) {
       this.log.error(error);
+      this.prometheus?.recordError("connect_rpc_error");
       this.tryToRecover = true;
       return false;
     }
@@ -341,6 +345,8 @@ export class EcleciaIndexer extends EclesiaEmitter {
       }
       catch (e) {
         this.log.error("Failed to initialize indexer: " + e);
+
+        this.prometheus?.recordError("init_error");
         this.setStatus("FAILED");
         throw e;
       }
@@ -352,6 +358,8 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }
         catch (e) {
           this.log.error("Failed to parse genesis: " + e);
+
+          this.prometheus?.recordError("genesis_error");
           this.setStatus("FAILED");
           throw e;
         }
@@ -383,12 +391,14 @@ export class EcleciaIndexer extends EclesiaEmitter {
           this.subscription.addListener(this.blockListener);
         }
         else {
+          this.prometheus?.recordError("subscription_error");
           throw new Error("Could not subscribe to new blocks");
         }
       }
     }
     catch (e) {
       this.log.error("Failed to set up block listening: " + e);
+      this.prometheus?.recordError("block_listening_error");
       this.setStatus("FAILED");
       throw e;
     }
@@ -396,12 +406,17 @@ export class EcleciaIndexer extends EclesiaEmitter {
     this.tryToRecover = false;
     this.fetcher().catch((e) => {
       this.setStatus("FAILED");
+
+      this.prometheus?.recordError("fetching_error");
       throw new Error("Error in fetching service: " + e);
     });
 
     const hrTime = process.hrtime();
     let ms = hrTime[0] * 1000000 + hrTime[1] / 1000;
     while (this.blockQueue.size() > 0 && !this.tryToRecover) {
+      if (this.config.enablePrometheus) {
+        this.prometheus!.updateRetryCount(this.retryCount);
+      }
       // await the dequeued promise is essentially awaiting fetched data for that block
       try {
         if (this.tryToRecover) {
@@ -418,6 +433,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
           const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
           this.log.silly("Retrieved block data");
           if (!toProcess || !toProcess[0] || !toProcess[1]) {
+            this.prometheus?.recordError("rpc_error");
             throw new Error("Could not fetch block");
           }
           height = toProcess[0].block.header.height;
@@ -432,6 +448,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
           const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
           this.log.silly("Retrieved block data");
           if (!toProcess || !toProcess[0] || !toProcess[1] || !toProcess[2]) {
+            this.prometheus?.recordError("rpc_error");
             throw new Error("Could not fetch block");
           }
 
@@ -480,12 +497,14 @@ export class EcleciaIndexer extends EclesiaEmitter {
         this.log.silly("Committed db tx");
       }
       catch (e) {
+        this.prometheus?.recordError("block_processing_error");
         this.log.error("" + e);
         this.setStatus("FAILED");
         try {
           await this.config.endTransaction(false);
         }
         catch (dbe) {
+          this.prometheus?.recordError("database");
           this.log.error("Error ending transaction. Must be a DB error: " + dbe);
         }
         this.tryToRecover = true;
@@ -560,6 +579,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
     let processStart: [number, number] = [0, 0];
     if (this.config.logLevel == "silly") {
       processStart = process.hrtime();
+    }
+    let endTimer;
+    if (this.config.enablePrometheus) {
+      endTimer = this.prometheus!.timeBlockProcessing();
     }
     const height = block.block.header.height;
     this.log.debug("Processing block: %d",
@@ -718,7 +741,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
       }
     }
     this.log.silly("Modules handled msg events");
-
+    if (this.config.enablePrometheus) {
+      this.prometheus!.recordTransactions(block.block.txs.length);
+    }
     // Then deal with end_block events
     await this.asyncEmit("end_block",
       {
@@ -733,6 +758,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
       this.log.silly("Processed block %d in %d ms",
         height,
         processTime.toFixed(2));
+    }
+
+    if (this.config.enablePrometheus) {
+      endTimer!();
     }
     if (this.config.enablePrometheus) {
       this.prometheus!.updateBlockMetrics(height, this.latestHeight, this.blockQueue.size());
@@ -808,6 +837,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
   public async callABCI(path: string, data: Uint8Array, height?: number, adHoc: boolean = true): Promise<Uint8Array> {
     try {
+      const endTimer = this.prometheus?.timeRpcCall(path) ?? void 0;
       const abciq = await
       (adHoc
         ? this.client
@@ -816,12 +846,14 @@ export class EcleciaIndexer extends EclesiaEmitter {
         data,
         height: height,
       });
+      endTimer?.();
       if (abciq) {
         return abciq.value;
       }
       else {
         this.tryToRecover = true;
         this.setStatus("FAILED");
+        this.prometheus?.recordError("abci_query_error");
         throw new Error("RPC not responding. Query at: " + path);
       }
     }
@@ -843,6 +875,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     if (this.blockQueue.synced && !this.tryToRecover) {
       this.latestHeight = height;
       if (this.blockQueue.size() + 1 == this.config.batchSize) {
+        this.prometheus?.recordError("block_queue_full");
         this.log.error("Block queue is full. Cannot add new block");
         this.tryToRecover = true;
         this.retryCount++;
@@ -1063,6 +1096,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         await this.config.endTransaction(false);
       }
       catch (dbe) {
+        this.prometheus?.recordError("database_error");
         this.log.error("Error ending transaction. Must be a DB error: " + dbe);
       }
       this.log.error("Failed to import genesis");

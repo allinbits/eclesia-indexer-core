@@ -139,12 +139,14 @@ export class BankModule implements Types.IndexingModule {
         }),
       ];
 
+      const endTimer = this.indexer.prometheus?.timeDatabaseQuery("insert-genesis-balance") ?? void 0;
       // Bulk insert genesis balances
       await db.query({
         name: "save-genesis-balances",
         text: "INSERT INTO balances(address,coins)  SELECT a,CAST( b as COIN[]) FROM UNNEST ($1::text[], $2::text[]) as t(a,b)",
         values,
       });
+      endTimer?.();
     });
     // Handle balance-affecting events from begin_block, transactions, and end_block
     this.indexer.on("begin_block", async (data) => {
@@ -320,14 +322,19 @@ export class BankModule implements Types.IndexingModule {
   ): Promise<Coin[]> {
     const db = this.pgIndexer.getInstance();
     // Get the most recent balance at or before the specified height
+
+    let endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-balance") ?? void 0;
     const res = await db.query(
       "SELECT to_json(coins) FROM balances WHERE address=$1 AND height<=$2 ORDER BY height DESC LIMIT 1", [address, height],
     );
+    endTimer?.();
     if (res.rowCount == 0) {
       // Fall back to genesis balance (height IS NULL)
+      endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-genesis-balance") ?? void 0;
       const nullres = await db.query(
         "SELECT to_json(coins) FROM balances WHERE address=$1 AND height IS NULL LIMIT 1", [address],
       );
+      endTimer?.();
       if (nullres.rowCount == 0) {
         return [];
       }
@@ -436,6 +443,7 @@ export class BankModule implements Types.IndexingModule {
       // Ensure account exists before saving balance
       await (this.pgIndexer.modules["cosmos.auth.v1beta1"] as AuthModule).assertAccount(address);
 
+      const endTimer = this.indexer.prometheus?.timeDatabaseQuery("upsert-balance") ?? void 0;
       // Upsert balance with conflict resolution
       await db.query({
         name: "save-balance",
@@ -449,6 +457,7 @@ export class BankModule implements Types.IndexingModule {
           height,
         ],
       });
+      endTimer?.();
     }
   }
 
@@ -466,7 +475,11 @@ export class BankModule implements Types.IndexingModule {
       await (this.pgIndexer.modules["cosmos.auth.v1beta1"] as AuthModule).assertAccount(address);
 
       // Remove existing genesis balance and insert new one
+
+      let endTimer = this.indexer.prometheus?.timeDatabaseQuery("delete-genesis-balance") ?? void 0;
       await db.query("DELETE FROM balances WHERE address=$1 AND height IS NULL", [address]);
+      endTimer?.();
+      endTimer = this.indexer.prometheus?.timeDatabaseQuery("insert-genesis-balance");
       await db.query({
         name: "save-genesis-balance",
         text: "INSERT INTO balances(address,coins) VALUES ($1,$2::COIN[])",
@@ -478,6 +491,7 @@ export class BankModule implements Types.IndexingModule {
           }),
         ],
       });
+      endTimer?.();
     }
   }
 }

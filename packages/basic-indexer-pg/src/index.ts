@@ -68,7 +68,7 @@ export class PgIndexer {
   private instanceConnected: boolean = false;
 
   /** Indexer configuration */
-  private config: PgIndexerConfig;
+  public config: PgIndexerConfig;
 
   /** Core indexer engine instance */
   public indexer: EcleciaIndexer;
@@ -292,6 +292,7 @@ export class PgIndexer {
         );
         this.db.on("error", (err) => {
           this.indexer.log.error("Error in db: " + err);
+          this.indexer.prometheus?.recordError("database");
         });
         await this.db.connect();
         this.instanceConnected = true;

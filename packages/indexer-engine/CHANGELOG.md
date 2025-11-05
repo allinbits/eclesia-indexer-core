@@ -1,5 +1,11 @@
 # @eclesia/indexer-engine
 
+## 2.10.0-next.3
+
+### Patch Changes
+
+- Collect additional metrics
+
 ## 2.10.0-next.2
 
 ### Patch Changes

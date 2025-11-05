@@ -174,15 +174,20 @@ export class AuthModule implements Types.IndexingModule {
 
   async assertAccounts(addresses: string[]) {
     const db = this.pgIndexer.getInstance();
+
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("assert-accounts") ?? void 0;
     await db.query({
       name: "assert_accounts",
       text: "INSERT INTO accounts(address) SELECT * FROM UNNEST($1::text[]) ON CONFLICT DO NOTHING",
       values: [addresses],
     });
+    endTimer?.();
   }
 
   async assertAccount(address: string) {
     const db = this.pgIndexer.getInstance();
+
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("assert-account") ?? void 0;
     const res = await db.query("SELECT address from accounts WHERE address=$1", [address]);
     if (res.rowCount == 0) {
       await db.query({
@@ -191,6 +196,7 @@ export class AuthModule implements Types.IndexingModule {
         values: [address],
       });
     }
+    endTimer?.();
   }
 
   async getModuleAccount(name: string) {
