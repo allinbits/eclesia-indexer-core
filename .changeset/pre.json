@@ -31,6 +31,7 @@
     "environment-variable-validation",
     "extract-magic-numbers",
     "fix-client-recycling-counter",
+    "funny-jars-grab",
     "graceful-shutdown",
     "queue-logger-integration",
     "replace-any-types-staking",
