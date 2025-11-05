@@ -28,6 +28,7 @@
     "configurable-health-check-port",
     "configuration-validation",
     "custom-error-classes",
+    "early-rivers-speak",
     "environment-variable-validation",
     "extract-magic-numbers",
     "fix-client-recycling-counter",

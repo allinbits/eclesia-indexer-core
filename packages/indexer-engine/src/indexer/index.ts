@@ -48,6 +48,9 @@ import {
   EclesiaEmitter,
 } from "../emitter/index.js";
 import {
+  IndexerMetrics,
+} from "../metrics/index.js";
+import {
   CircularBuffer,
 } from "../promise-queue/index.js";
 import {
@@ -73,6 +76,8 @@ export const defaultIndexerConfig = {
   shouldProcessGenesis: () => false,                  // Skip genesis processing by default
   minimal: true,                                      // Use minimal indexing by default
   healthCheckPort: DEFAULT_HEALTH_CHECK_PORT,         // Default health check port
+  enablePrometheus: false,                            // Disable Prometheus metrics server by default
+  prometheusPort: 9090,                               // Default Prometheus metrics server port
   init: () => Promise.resolve(),                      // No-op initialization function
   beginTransaction: () => Promise.resolve(),          // No-op transaction begin function
   endTransaction: (_status: boolean) => Promise.resolve(), // No-op transaction end function
@@ -89,6 +94,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
   /** Fastify HTTP server for health checks */
   private fastify: FastifyInstance;
 
+  /** Prometheus HTTP server instance */
+  private prometheusServer: FastifyInstance | null = null;
+
   /** Queue for managing block processing pipeline */
   private blockQueue: BlockQueue;
 
@@ -100,6 +108,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
   /** Whether the indexer has been initialized */
   private initialized = false;
+
+  /** Prometheus metrics server instance */
+  private prometheus: IndexerMetrics | null = null;
 
   /** Number of retry attempts for error recovery */
   private retryCount = 0;
@@ -207,6 +218,31 @@ export class EcleciaIndexer extends EclesiaEmitter {
     else {
       // Full mode: also store validator information
       this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse, Uint8Array]>(this.config.batchSize, queueErrorHandler);
+    }
+    if (this.config.enablePrometheus) {
+      this.prometheus = new IndexerMetrics();
+      this.prometheusServer = Fastify({
+        logger: false,
+      });
+      this.prometheusServer.get("/metrics",
+        async (_req, res) => {
+          res.header("Content-Type", this.prometheus!.registry.contentType);
+          res.send(await this.prometheus!.getMetrics());
+        },
+      );
+      this.prometheusServer.listen({
+        port: this.config.prometheusPort,
+        host: "0.0.0.0",
+      },
+      (err) => {
+        if (err) {
+          this.log.error(err);
+          this.emit("fatal-error", {
+            error: err,
+            message: "Failed to start health check server",
+          });
+        }
+      });
     }
     this.fastify = Fastify({
       logger: false,
@@ -697,6 +733,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
       this.log.silly("Processed block %d in %d ms",
         height,
         processTime.toFixed(2));
+    }
+    if (this.config.enablePrometheus) {
+      this.prometheus!.updateBlockMetrics(height, this.latestHeight, this.blockQueue.size());
     }
   }
 

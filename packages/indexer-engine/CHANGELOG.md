@@ -1,5 +1,11 @@
 # @eclesia/indexer-engine
 
+## 2.10.0-next.1
+
+### Patch Changes
+
+- Wire up prometheus
+
 ## 2.10.0-next.0
 
 ### Minor Changes
