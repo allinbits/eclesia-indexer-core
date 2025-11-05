@@ -1,9 +1,6 @@
 /* eslint-disable @stylistic/no-multi-spaces */
 import {
-  ConfigurationError, DB_CLIENT_RECYCLE_COUNT, EcleciaIndexer,
-} from "@eclesia/indexer-engine";
-import {
-  Types, Utils,
+  ConfigurationError, DB_CLIENT_RECYCLE_COUNT, EcleciaIndexer, Types, Utils,
 } from "@eclesia/indexer-engine";
 import {
   Client,
