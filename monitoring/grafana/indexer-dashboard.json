@@ -1,0 +1,282 @@
+{
+  "dashboard": {
+    "title": "Eclesia Indexer Monitoring",
+    "tags": ["blockchain", "indexer", "eclesia"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 0,
+    "refresh": "10s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Block Indexing Progress",
+        "type": "graph",
+        "gridPos": {
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "indexer_current_height",
+            "legendFormat": "Current Height",
+            "refId": "A"
+          },
+          {
+            "expr": "indexer_latest_chain_height",
+            "legendFormat": "Chain Height",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "label": "Block Height",
+            "show": true
+          },
+          {
+            "show": true
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Blocks Behind",
+        "type": "stat",
+        "gridPos": {
+          "x": 12,
+          "y": 0,
+          "w": 6,
+          "h": 4
+        },
+        "targets": [
+          {
+            "expr": "indexer_blocks_behind",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 100
+                },
+                {
+                  "color": "red",
+                  "value": 1000
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Queue Depth",
+        "type": "stat",
+        "gridPos": {
+          "x": 18,
+          "y": 0,
+          "w": 6,
+          "h": 4
+        },
+        "targets": [
+          {
+            "expr": "indexer_queue_depth",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Indexing Rate (blocks/sec)",
+        "type": "stat",
+        "gridPos": {
+          "x": 12,
+          "y": 4,
+          "w": 12,
+          "h": 4
+        },
+        "targets": [
+          {
+            "expr": "rate(indexer_blocks_indexed_total[1m])",
+            "legendFormat": "Blocks/sec",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Error Rates",
+        "type": "graph",
+        "gridPos": {
+          "x": 0,
+          "y": 8,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(indexer_errors_total[5m])",
+            "legendFormat": "Errors - {{type}}",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(indexer_rpc_errors_total[5m])",
+            "legendFormat": "RPC Errors",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(indexer_database_errors_total[5m])",
+            "legendFormat": "Database Errors",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Block Processing Duration (p95)",
+        "type": "graph",
+        "gridPos": {
+          "x": 12,
+          "y": 8,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(indexer_block_processing_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(indexer_block_processing_duration_seconds_bucket[5m]))",
+            "legendFormat": "p99",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "label": "Duration (seconds)",
+            "show": true
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "RPC Call Duration by Method (p95)",
+        "type": "graph",
+        "gridPos": {
+          "x": 0,
+          "y": 16,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(indexer_rpc_call_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{method}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "label": "Duration (seconds)",
+            "show": true
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Database Query Duration (p95)",
+        "type": "graph",
+        "gridPos": {
+          "x": 12,
+          "y": 16,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(indexer_database_query_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{query_type}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "label": "Duration (seconds)",
+            "show": true
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Memory Usage",
+        "type": "graph",
+        "gridPos": {
+          "x": 0,
+          "y": 24,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "nodejs_heap_size_used_bytes",
+            "legendFormat": "Heap Used",
+            "refId": "A"
+          },
+          {
+            "expr": "nodejs_heap_size_total_bytes",
+            "legendFormat": "Heap Total",
+            "refId": "B"
+          },
+          {
+            "expr": "nodejs_external_memory_bytes",
+            "legendFormat": "External Memory",
+            "refId": "C"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "bytes",
+            "label": "Memory",
+            "show": true
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Event Loop Lag",
+        "type": "graph",
+        "gridPos": {
+          "x": 12,
+          "y": 24,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(nodejs_eventloop_lag_seconds[5m])",
+            "legendFormat": "Event Loop Lag",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "s",
+            "label": "Lag (seconds)",
+            "show": true
+          }
+        ]
+      }
+    ]
+  }
+}

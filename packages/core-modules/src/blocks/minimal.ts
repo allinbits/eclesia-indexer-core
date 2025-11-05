@@ -94,12 +94,14 @@ export class MinimalBlocksModule implements Types.IndexingModule {
     this.indexer.on("block", async (event): Promise<void> => {
       const block = event.value.block;
       const db = this.pgIndexer.getInstance();
+      const endTimer = this.indexer.prometheus?.timeDatabaseQuery("add-block") ?? void 0;
       // Store minimal block data - only height and timestamp
-      db.query({
+      await db.query({
         name: "add-block",
         text: "INSERT INTO blocks(height, timestamp) VALUES ($1,$2)",
         values: [block.block.header.height, block.block.header.time],
       });
+      endTimer?.();
       this.indexer.log.silly("Value passed to blocks indexing module: " + JSONStringify(event.value));
     });
   }

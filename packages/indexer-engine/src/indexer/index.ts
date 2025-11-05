@@ -41,8 +41,15 @@ import {
 import * as winston from "winston";
 
 import {
+  DEFAULT_BATCH_SIZE, DEFAULT_HEALTH_CHECK_PORT, DEFAULT_POLLING_INTERVAL_MS, DEFAULT_START_HEIGHT,
+  GENESIS_BATCH_SIZE, PAGINATION_LIMITS, PERIODIC_INTERVALS, QUEUE_DEQUEUE_TIMEOUT_MS, RPC_TIMEOUT_MS,
+} from "../constants.js";
+import {
   EclesiaEmitter,
 } from "../emitter/index.js";
+import {
+  IndexerMetrics,
+} from "../metrics/index.js";
 import {
   CircularBuffer,
 } from "../promise-queue/index.js";
@@ -53,18 +60,24 @@ import {
 import {
   decodeAttr,
 } from "../utils/index.js";
+import {
+  validateFilePath, validatePort, validatePositiveInteger, validateUrl,
+} from "../validation/index.js";
 
 /** Default configuration for the Eclesia indexer */
 export const defaultIndexerConfig = {
-  startHeight: 1,                                     // Start indexing from block 1
-  batchSize: 500,                                     // Process blocks in batches of 500
+  startHeight: DEFAULT_START_HEIGHT,                  // Start indexing from block 1
+  batchSize: DEFAULT_BATCH_SIZE,                      // Process blocks in batches of 500
   modules: [],                                        // No modules enabled by default
-  getNextHeight: () => 1,                            // Default height retrieval function
+  getNextHeight: () => DEFAULT_START_HEIGHT,         // Default height retrieval function
   logLevel: "info" as EcleciaIndexerConfig["logLevel"], // Default log level
   usePolling: false,                                  // Use WebSocket subscription by default
-  pollingInterval: 5000,                              // Poll every 5 seconds when polling enabled
+  pollingInterval: DEFAULT_POLLING_INTERVAL_MS,       // Poll every 5 seconds when polling enabled
   shouldProcessGenesis: () => false,                  // Skip genesis processing by default
   minimal: true,                                      // Use minimal indexing by default
+  healthCheckPort: DEFAULT_HEALTH_CHECK_PORT,         // Default health check port
+  enablePrometheus: false,                            // Disable Prometheus metrics server by default
+  prometheusPort: 9090,                               // Default Prometheus metrics server port
   init: () => Promise.resolve(),                      // No-op initialization function
   beginTransaction: () => Promise.resolve(),          // No-op transaction begin function
   endTransaction: (_status: boolean) => Promise.resolve(), // No-op transaction end function
@@ -76,10 +89,13 @@ export const defaultIndexerConfig = {
  */
 export class EcleciaIndexer extends EclesiaEmitter {
   /** Indexer configuration settings */
-  private config: EcleciaIndexerConfig;
+  public config: EcleciaIndexerConfig;
 
   /** Fastify HTTP server for health checks */
   private fastify: FastifyInstance;
+
+  /** Prometheus HTTP server instance */
+  private prometheusServer: FastifyInstance | null = null;
 
   /** Queue for managing block processing pipeline */
   private blockQueue: BlockQueue;
@@ -92,6 +108,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
   /** Whether the indexer has been initialized */
   private initialized = false;
+
+  /** Prometheus metrics server instance */
+  public prometheus: IndexerMetrics | null = null;
 
   /** Number of retry attempts for error recovery */
   private retryCount = 0;
@@ -122,20 +141,37 @@ export class EcleciaIndexer extends EclesiaEmitter {
    */
   constructor(config: EcleciaIndexerConfig) {
     super();
+
+    // Validate required configuration
+    validateUrl(config.rpcUrl, "rpcUrl");
+    validatePositiveInteger(config.batchSize, "batchSize");
+
+    // Validate optional genesis path if processing genesis
+    if (config.genesisPath) {
+      validateFilePath(config.genesisPath, "genesisPath");
+    }
+
+    // Validate health check port if provided
+    if (config.healthCheckPort !== undefined) {
+      validatePort(config.healthCheckPort, "healthCheckPort");
+    }
+
+    // Validate start height if provided
+    if (config.startHeight !== undefined) {
+      validatePositiveInteger(config.startHeight, "startHeight");
+    }
+
+    // Validate polling interval if provided
+    if (config.pollingInterval !== undefined) {
+      validatePositiveInteger(config.pollingInterval, "pollingInterval");
+    }
+
     this.config = {
       ...defaultIndexerConfig,
       ...config,
     };
 
-    // Initialize block queue based on minimal or full indexing mode
-    if (this.config.minimal) {
-      // Minimal mode: only store block and block results
-      this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse]>(this.config.batchSize);
-    }
-    else {
-      // Full mode: also store validator information
-      this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse, Uint8Array]>(this.config.batchSize);
-    }
+    // Initialize logger first so it can be used by queue error handler
     const {
       printf,
     } = winston.format;
@@ -168,6 +204,48 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }),
       ],
     });
+
+    // Initialize block queue based on minimal or full indexing mode
+    // Pass error handler that uses the logger
+    const queueErrorHandler = (e: unknown) => {
+      this.prometheus?.recordError("block_queue");
+      this.log.error("Error enqueueing block data: " + e);
+    };
+
+    if (this.config.minimal) {
+      // Minimal mode: only store block and block results
+      this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse]>(this.config.batchSize, queueErrorHandler);
+    }
+    else {
+      // Full mode: also store validator information
+      this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse, Uint8Array]>(this.config.batchSize, queueErrorHandler);
+    }
+    if (this.config.enablePrometheus) {
+      this.prometheus = new IndexerMetrics();
+      this.prometheusServer = Fastify({
+        logger: false,
+      });
+      this.prometheusServer.get("/metrics",
+        async (_req, res) => {
+          res.header("Content-Type", this.prometheus!.registry.contentType);
+          res.send(await this.prometheus!.getMetrics());
+        },
+      );
+      this.prometheusServer.listen({
+        port: this.config.prometheusPort,
+        host: "0.0.0.0",
+      },
+      (err) => {
+        if (err) {
+          this.log.error(err);
+          this.prometheus?.recordError("metrics_server");
+          this.emit("fatal-error", {
+            error: err,
+            message: "Failed to start metrics server",
+          });
+        }
+      });
+    }
     this.fastify = Fastify({
       logger: false,
     });
@@ -189,14 +267,20 @@ export class EcleciaIndexer extends EclesiaEmitter {
           : 503;
         reply.code(code).send(this.healthCheck);
       });
+    const healthPort = this.config.healthCheckPort
+      ?? (process.env.HEALTH_CHECK_PORT ? parseInt(process.env.HEALTH_CHECK_PORT, 10) : 8080);
     this.fastify.listen({
-      port: 80,
+      port: healthPort,
       host: "0.0.0.0",
     },
     (err) => {
       if (err) {
         this.log.error(err);
-        process.exit(1);
+        this.prometheus?.recordError("health_check_server");
+        this.emit("fatal-error", {
+          error: err,
+          message: "Failed to start health check server",
+        });
       }
     });
   }
@@ -242,6 +326,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     }
     catch (error) {
       this.log.error(error);
+      this.prometheus?.recordError("connect_rpc_error");
       this.tryToRecover = true;
       return false;
     }
@@ -260,6 +345,8 @@ export class EcleciaIndexer extends EclesiaEmitter {
       }
       catch (e) {
         this.log.error("Failed to initialize indexer: " + e);
+
+        this.prometheus?.recordError("init_error");
         this.setStatus("FAILED");
         throw e;
       }
@@ -271,6 +358,8 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }
         catch (e) {
           this.log.error("Failed to parse genesis: " + e);
+
+          this.prometheus?.recordError("genesis_error");
           this.setStatus("FAILED");
           throw e;
         }
@@ -302,12 +391,14 @@ export class EcleciaIndexer extends EclesiaEmitter {
           this.subscription.addListener(this.blockListener);
         }
         else {
+          this.prometheus?.recordError("subscription_error");
           throw new Error("Could not subscribe to new blocks");
         }
       }
     }
     catch (e) {
       this.log.error("Failed to set up block listening: " + e);
+      this.prometheus?.recordError("block_listening_error");
       this.setStatus("FAILED");
       throw e;
     }
@@ -315,12 +406,17 @@ export class EcleciaIndexer extends EclesiaEmitter {
     this.tryToRecover = false;
     this.fetcher().catch((e) => {
       this.setStatus("FAILED");
+
+      this.prometheus?.recordError("fetching_error");
       throw new Error("Error in fetching service: " + e);
     });
 
     const hrTime = process.hrtime();
     let ms = hrTime[0] * 1000000 + hrTime[1] / 1000;
     while (this.blockQueue.size() > 0 && !this.tryToRecover) {
+      if (this.config.enablePrometheus) {
+        this.prometheus!.updateRetryCount(this.retryCount);
+      }
       // await the dequeued promise is essentially awaiting fetched data for that block
       try {
         if (this.tryToRecover) {
@@ -332,11 +428,12 @@ export class EcleciaIndexer extends EclesiaEmitter {
         let height, timestamp;
         if (this.isMinimal(this.blockQueue)) {
           const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((resolve, reject) => {
-            setTimeout(reject, 30000, []);
+            setTimeout(reject, QUEUE_DEQUEUE_TIMEOUT_MS, []);
           });
           const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
           this.log.silly("Retrieved block data");
           if (!toProcess || !toProcess[0] || !toProcess[1]) {
+            this.prometheus?.recordError("rpc_error");
             throw new Error("Could not fetch block");
           }
           height = toProcess[0].block.header.height;
@@ -346,11 +443,12 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }
         else {
           const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((resolve, reject) => {
-            setTimeout(reject, 30000, []);
+            setTimeout(reject, QUEUE_DEQUEUE_TIMEOUT_MS, []);
           });
           const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
           this.log.silly("Retrieved block data");
           if (!toProcess || !toProcess[0] || !toProcess[1] || !toProcess[2]) {
+            this.prometheus?.recordError("rpc_error");
             throw new Error("Could not fetch block");
           }
 
@@ -362,7 +460,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
             QueryValidatorsResponse.decode(toProcess[2]).validators);
         }
         // Emit events to trigger periodic operations every 50, 100 and 1000 blocks
-        if (height % 1000 == 0) {
+        if (height % PERIODIC_INTERVALS.LARGE == 0) {
           const hrTime = process.hrtime();
           const newms = hrTime[0] * 1000000 + hrTime[1] / 1000;
           const duration = newms - ms;
@@ -376,7 +474,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
               timestamp,
             });
         }
-        if (height % 100 == 0) {
+        if (height % PERIODIC_INTERVALS.MEDIUM == 0) {
           await this.asyncEmit("periodic/100",
             {
               value: null,
@@ -384,7 +482,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
               timestamp,
             });
         }
-        if (height % 50 == 0) {
+        if (height % PERIODIC_INTERVALS.SMALL == 0) {
           await this.asyncEmit("periodic/50",
             {
               value: null,
@@ -399,12 +497,14 @@ export class EcleciaIndexer extends EclesiaEmitter {
         this.log.silly("Committed db tx");
       }
       catch (e) {
+        this.prometheus?.recordError("block_processing_error");
         this.log.error("" + e);
         this.setStatus("FAILED");
         try {
           await this.config.endTransaction(false);
         }
         catch (dbe) {
+          this.prometheus?.recordError("database");
           this.log.error("Error ending transaction. Must be a DB error: " + dbe);
         }
         this.tryToRecover = true;
@@ -422,7 +522,11 @@ export class EcleciaIndexer extends EclesiaEmitter {
     }
     else {
       this.log.info("Indexer failed too many times. Exiting.");
-      process.exit(1);
+      this.emit("fatal-error", {
+        error: new Error("Max retry attempts exceeded"),
+        message: "Indexer failed too many times",
+        retryCount: this.retryCount,
+      });
     }
   }
 
@@ -475,6 +579,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
     let processStart: [number, number] = [0, 0];
     if (this.config.logLevel == "silly") {
       processStart = process.hrtime();
+    }
+    let endTimer;
+    if (this.config.enablePrometheus) {
+      endTimer = this.prometheus!.timeBlockProcessing();
     }
     const height = block.block.header.height;
     this.log.debug("Processing block: %d",
@@ -633,7 +741,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
       }
     }
     this.log.silly("Modules handled msg events");
-
+    if (this.config.enablePrometheus) {
+      this.prometheus!.recordTransactions(block.block.txs.length);
+    }
     // Then deal with end_block events
     await this.asyncEmit("end_block",
       {
@@ -649,6 +759,13 @@ export class EcleciaIndexer extends EclesiaEmitter {
         height,
         processTime.toFixed(2));
     }
+
+    if (this.config.enablePrometheus) {
+      endTimer!();
+    }
+    if (this.config.enablePrometheus) {
+      this.prometheus!.updateBlockMetrics(height, this.latestHeight, this.blockQueue.size());
+    }
   }
 
   private async fetcher() {
@@ -662,7 +779,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         if (this.isMinimal(this.blockQueue)) {
           const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse]> = new Promise((resolve, reject) => {
             setTimeout(reject,
-              20000,
+              RPC_TIMEOUT_MS,
               false);
           });
           const toIndex = Promise.race([Promise.all([this.blockClient.block(i) as Promise<BlockResponse>, this.blockClient.blockResults(i) as Promise<BlockResultsResponse>]), timeoutPromise]).catch((e) => {
@@ -675,12 +792,12 @@ export class EcleciaIndexer extends EclesiaEmitter {
         else {
           const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse, Uint8Array]> = new Promise((resolve, reject) => {
             setTimeout(reject,
-              20000,
+              RPC_TIMEOUT_MS,
               false);
           });
           const q = QueryValidatorsRequest.fromPartial({
             pagination: {
-              limit: 1000n,
+              limit: PAGINATION_LIMITS.VALIDATORS,
             },
           });
           const vals = QueryValidatorsRequest.encode(q).finish();
@@ -720,6 +837,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
   public async callABCI(path: string, data: Uint8Array, height?: number, adHoc: boolean = true): Promise<Uint8Array> {
     try {
+      const endTimer = this.prometheus?.timeRpcCall(path) ?? void 0;
       const abciq = await
       (adHoc
         ? this.client
@@ -728,12 +846,14 @@ export class EcleciaIndexer extends EclesiaEmitter {
         data,
         height: height,
       });
+      endTimer?.();
       if (abciq) {
         return abciq.value;
       }
       else {
         this.tryToRecover = true;
         this.setStatus("FAILED");
+        this.prometheus?.recordError("abci_query_error");
         throw new Error("RPC not responding. Query at: " + path);
       }
     }
@@ -755,6 +875,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     if (this.blockQueue.synced && !this.tryToRecover) {
       this.latestHeight = height;
       if (this.blockQueue.size() + 1 == this.config.batchSize) {
+        this.prometheus?.recordError("block_queue_full");
         this.log.error("Block queue is full. Cannot add new block");
         this.tryToRecover = true;
         this.retryCount++;
@@ -834,14 +955,32 @@ export class EcleciaIndexer extends EclesiaEmitter {
           filter,
         }));
         let counter = 0;
+        let chunkCounter = 0;
+
+        // Wrapper processor that handles transaction chunking
+        const chunkProcessor = async (data: unknown) => {
+          chunkCounter++;
+          this.log.debug(`Processing genesis chunk ${chunkCounter}`);
+
+          await processor(data);
+
+          // Commit and restart transaction every 5 chunks (5000 entries)
+          // This prevents timeout on large genesis files
+          if (chunkCounter % 5 === 0) {
+            this.log.debug(`Committing transaction after chunk ${chunkCounter}`);
+            await this.config.endTransaction(true);
+            await this.config.beginTransaction();
+          }
+        };
+
         chain([
           this.readGenesis(),
           ...pickers,
           StreamArray.streamArray(),
           Batch.batch({
-            batchSize: 1000,
+            batchSize: GENESIS_BATCH_SIZE,
           }),
-          processor,
+          chunkProcessor,
         ])
           .on("data",
             (data) => {
@@ -851,7 +990,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
             })
           .on("end",
             () => {
-              this.log.info(`Processed ${counter} entries`);
+              this.log.info(`Processed ${counter} entries in ${chunkCounter} chunks`);
               resolve(true);
             });
       }
@@ -957,6 +1096,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         await this.config.endTransaction(false);
       }
       catch (dbe) {
+        this.prometheus?.recordError("database_error");
         this.log.error("Error ending transaction. Must be a DB error: " + dbe);
       }
       this.log.error("Failed to import genesis");

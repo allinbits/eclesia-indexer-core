@@ -33,9 +33,12 @@ export type EcleciaIndexerConfig = {
   usePolling?: boolean                                           // Use polling instead of WebSocket subscription
   pollingInterval?: number                                       // Interval between polls in milliseconds
   minimal?: boolean                                              // Use minimal indexing mode (blocks only)
+  healthCheckPort?: number                                       // Port for health check HTTP server (default: 8080)
+  enablePrometheus?: boolean                                     // Enable Prometheus metrics server
+  prometheusPort?: number                                        // Port for Prometheus metrics server (default: 9090)
   init?: () => Promise<void>                                     // Custom initialization function
   beginTransaction: () => Promise<void>                          // Function to begin database transaction
-  endTransaction: (status: boolean) => Promise<void>            // Function to end database transaction
+  endTransaction: (status: boolean) => Promise<void>             // Function to end database transaction
 };
 
 /** Queue for full indexing mode with validator data */
@@ -74,6 +77,11 @@ export type UUIDEvent = {
 export type Events = {
   log: LogEvent
   uuid: UUIDEvent
+  "fatal-error": {
+    error: Error
+    message: string
+    retryCount?: number
+  }
   begin_block: {
     value: {
       events: BlockResultsResponse["beginBlockEvents"] | BlockResultsResponse38["finalizeBlockEvents"]

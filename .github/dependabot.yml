@@ -1,0 +1,47 @@
+version: 2
+updates:
+  # Enable version updates for npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    # Group all updates together to reduce PR noise
+    groups:
+      all-dependencies:
+        patterns:
+          - "*"
+    # Configuration options
+    open-pull-requests-limit: 10
+    reviewers:
+      - "allinbits/eclesia-maintainers"
+    assignees:
+      - "allinbits/eclesia-maintainers"
+    labels:
+      - "dependencies"
+      - "automated"
+    # Only create PRs for security and minor/patch updates
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    # Allow dependencies to be updated
+    allow:
+      - dependency-type: "all"
+
+  # Also check for GitHub Actions updates
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"

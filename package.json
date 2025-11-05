@@ -1,18 +1,36 @@
 {
   "name": "@eclesia/eclesia-indexer-core",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "description": "",
-  "main": "index.js",
   "scripts": {
     "build": "pnpm recursive run --sort build",
     "lint": "pnpm recursive run --sort lint",
     "lint:fix": "pnpm recursive run --sort lint:fix",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "typecheck": "pnpm recursive run --sort typecheck",
+    "test": "pnpm recursive run --sort test",
+    "test:e2e": "vitest run --config tests/vitest.config.ts",
+    "bench": "vitest bench --config benchmarks/vitest.config.ts",
+    "typedoc": "typedoc",
+    "audit": "pnpm audit",
+    "audit:fix": "pnpm audit --fix",
+    "outdated": "pnpm outdated",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "packages/**/*.{ts,tsx}": [
+      "pnpm lint:fix"
+    ]
   },
   "keywords": [],
   "author": "",
+  "private": true,
   "license": "ISC",
   "devDependencies": {
-    "@changesets/cli": "^2.29.7"
+    "@changesets/cli": "^2.29.7",
+    "@types/node": "^22.14.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.6",
+    "typedoc": "^0.28.14",
+    "vitest": "^3.2.4"
   }
 }

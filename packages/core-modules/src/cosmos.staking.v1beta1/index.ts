@@ -12,10 +12,10 @@ import {
   PgIndexer,
 } from "@eclesia/basic-pg-indexer";
 import {
-  EcleciaIndexer, Types,
+  EcleciaIndexer, PAGINATION_LIMITS, Types,
 } from "@eclesia/indexer-engine";
 import {
-  Utils,
+  Utils, Validation,
 } from "@eclesia/indexer-engine";
 import BigNumber from "bignumber.js";
 import {
@@ -53,10 +53,83 @@ import {
 import {
   JSONStringify,
 } from "json-with-bigint";
+import {
+  LRUCache,
+} from "lru-cache";
 
 import {
   BankModule,
 } from "../cosmos.bank.v1beta1/index.js";
+
+/** Genesis transaction pubkey structure */
+interface GenesisPubkey {
+  "@type": string
+  key: string
+}
+
+/** Genesis transaction for creating a validator */
+interface GenesisCreateValidator {
+  delegator_address: string
+  validator_address: string
+  pubkey: GenesisPubkey
+  value: {
+    denom: string
+    amount: string
+  }
+  description: {
+    moniker: string
+    identity?: string
+    website?: string
+    security_contact?: string
+    details?: string
+  }
+  commission: {
+    rate: string
+    max_rate: string
+    max_change_rate: string
+  }
+  min_self_delegation: string
+}
+
+/** Genesis staking parameters */
+interface GenesisStakingParams {
+  unbonding_time: string
+  max_validators: number
+  max_entries: number
+  historical_entries: number
+  bond_denom: string
+  min_commission_rate: string
+}
+
+/** Genesis validator structure */
+interface GenesisValidator {
+  operator_address: string
+  consensus_pubkey: {
+    pubkey: GenesisPubkey
+  }
+  jailed: boolean
+  status: number
+  tokens: string
+  delegator_shares: string
+  description: {
+    moniker: string
+    identity?: string
+    website?: string
+    security_contact?: string
+    details?: string
+  }
+  unbonding_height: string
+  unbonding_time: string
+  commission: {
+    commission_rates: {
+      rate: string
+      max_rate: string
+      max_change_rate: string
+    }
+    update_time: string
+  }
+  min_self_delegation: string
+}
 
 /** Events emitted by the Staking module for various staking operations */
 export type Events = {
@@ -77,18 +150,15 @@ export type Events = {
   }
 
   "gentx/cosmos.staking.v1beta1.MsgCreateValidator": {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    value: any
+    value: GenesisCreateValidator
   }
 
   "genesis/value/app_state.staking.params": {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    value: any
+    value: GenesisStakingParams
   }
 
   "genesis/array/app_state.staking.validators": {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    value: any[]
+    value: GenesisValidator[]
   }
 };
 
@@ -128,14 +198,23 @@ export class StakingModule implements Types.IndexingModule {
 
   public provides: string[] = ["cosmos.staking.v1beta1"];
 
-  /** Cache mapping operator addresses to consensus addresses */
-  public validatorAddressCache = new Map<string, string>();
+  /** LRU cache mapping operator addresses to consensus addresses (max 1000 entries) */
+  public validatorAddressCache = new LRUCache<string, string>({
+    max: 1000,
+  });
 
-  /** Cache of validator status and delegation information */
-  public validatorCache = new Map<string, CachedValidator>();
+  /** LRU cache of validator status and delegation information (max 500 entries) */
+  public validatorCache = new LRUCache<string, CachedValidator>({
+    max: 500,
+  });
+
+  /** Validated chain prefix for address generation */
+  private chainPrefix: string;
 
   constructor(registry: [string, GeneratedType][]) {
     this.registry = registry;
+    // Validate and cache chain prefix at initialization
+    this.chainPrefix = Validation.getChainPrefix("cosmos");
   }
 
   async cacheValidatorData() {
@@ -187,24 +266,26 @@ export class StakingModule implements Types.IndexingModule {
       "gentx/cosmos.staking.v1beta1.MsgCreateValidator", async (event): Promise<void> => {
         const db = this.pgIndexer.getInstance();
         const consensus_address = Utils.chainAddressfromKeyhash(
-          (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", createHash("sha256")
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .update(Buffer.from((event.value.pubkey as any).key, "base64"))
+          this.chainPrefix + "valcons", createHash("sha256")
+            .update(Buffer.from(event.value.pubkey.key, "base64"))
             .digest("hex")
             .slice(0, 40),
         );
         const consensus_pubkey
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          = (event.value.pubkey as any)["@type"]
+          = event.value.pubkey["@type"]
             + "("
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            + Buffer.from((event.value.pubkey as any).key, "base64").toString("hex")
+            + Buffer.from(event.value.pubkey.key, "base64").toString("hex")
             + ")";
+
+        let endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator") ?? void 0;
         await db.query({
-          name: "save-validator",
+          name: "save-genesis-validator",
           text: "INSERT INTO validators(consensus_address,consensus_pubkey) VALUES ($1,$2)",
           values: [consensus_address, consensus_pubkey],
         });
+        endTimer?.();
+
+        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-genesis-staked-balance");
         await db.query({
           name: "save-staked-balance-genesis",
           text: "INSERT INTO staked_balances(delegator,amount,shares,validator) VALUES($1,$2::COIN,$3,$4)",
@@ -219,24 +300,31 @@ export class StakingModule implements Types.IndexingModule {
             consensus_address,
           ],
         });
+        endTimer?.();
+        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-genesis-validator-info") ?? void 0;
         await db.query({
           name: "save-validator-info-genesis",
           text: "INSERT INTO validator_infos(consensus_address, operator_address, self_delegate_address, max_change_rate, max_rate) VALUES ($1,$2,$3,$4,$5)",
           values: [consensus_address, event.value.validator_address, event.value.delegator_address, event.value.commission.max_change_rate, event.value.commission.max_rate],
         });
+        endTimer?.();
         this.validatorAddressCache.set(
           event.value.validator_address, consensus_address,
         );
+        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-genesis-validator-description") ?? void 0;
         await db.query({
           name: "save-validator-description-genesis",
           text: "INSERT INTO validator_descriptions(validator_address, moniker, identity, avatar_url,  website, security_contact, details) VALUES ($1,$2,$3,$4,$5,$6,$7)",
           values: [event.value.validator_address, event.value.description.moniker, event.value.description.identity, event.value.description.identity, event.value.description.website, event.value.description.security_contact, event.value.description.details],
         });
+        endTimer?.();
+        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-genesis-validator-commission") ?? void 0;
         await db.query({
           name: "save-validator-commission-genesis",
           text: "INSERT INTO validator_commissions(validator_address, commission, min_self_delegation) VALUES ($1,$2,$3)",
           values: [event.value.validator_address, event.value.commission.rate, event.value.min_self_delegation],
         });
+        endTimer?.();
 
         if (this.pgIndexer.modules && this.pgIndexer.modules["cosmos.bank.v1beta1"]) {
         // Explicitly decrease validator self delegator balances since we have no events for these
@@ -257,6 +345,7 @@ export class StakingModule implements Types.IndexingModule {
 
       const descr = await this.getValidatorDesciption(msg.validatorAddress);
       const commission = await this.getValidatorCommission(msg.validatorAddress);
+      let endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-description");
       await db.query({
         name: "save-validator-description",
         text: "INSERT INTO validator_descriptions(validator_address, moniker, identity, avatar_url,  website, security_contact, details, height) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
@@ -286,6 +375,9 @@ export class StakingModule implements Types.IndexingModule {
           event.height,
         ],
       });
+      endTimer?.();
+
+      endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-commission") ?? void 0;
       await db.query({
         name: "save-validato-commission",
         text: "INSERT INTO validator_commissions(validator_address, commission, min_self_delegation, height) VALUES ($1,$2,$3,$4)",
@@ -298,6 +390,7 @@ export class StakingModule implements Types.IndexingModule {
           event.height,
         ],
       });
+      endTimer?.();
     });
 
     this.indexer.on(
@@ -309,7 +402,7 @@ export class StakingModule implements Types.IndexingModule {
             ? EdPubKey.decode(msg.pubkey.value)
             : SecpPubKey.decode(msg.pubkey?.value ?? new Uint8Array());
         const consensus_address = Utils.chainAddressfromKeyhash(
-          (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", createHash("sha256").update(key.key).digest("hex").slice(0, 40),
+          this.chainPrefix + "valcons", createHash("sha256").update(key.key).digest("hex").slice(0, 40),
         );
         const consensus_pubkey
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -317,36 +410,45 @@ export class StakingModule implements Types.IndexingModule {
             + "("
             + Buffer.from(key.key).toString("hex")
             + ")";
+        let endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator") ?? void 0;
         await db.query({
           name: "save-validator",
           text: "INSERT INTO validators(consensus_address,consensus_pubkey) VALUES ($1,$2)",
           values: [consensus_address, consensus_pubkey],
         });
+        endTimer?.();
         if (msg.value) {
+          endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
           await db.query({
             name: "save-staked-balance",
             text: "INSERT INTO staked_balances(delegator,amount,validator,shares, height) VALUES($1,$2::COIN,$3,$4,$5)",
             values: [msg.delegatorAddress, "(\"" + msg.value?.denom + "\", \"" + msg.value?.amount + "\")", consensus_address, msg.value?.amount, event.height],
           });
+          endTimer?.();
         }
+        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-info") ?? void 0;
         await db.query({
           name: "save-validator-info",
           text: "INSERT INTO validator_infos(consensus_address, operator_address, self_delegate_address, max_change_rate, max_rate,height) VALUES ($1,$2,$3,$4,$5,$6)",
           values: [consensus_address, msg.validatorAddress, msg.delegatorAddress, msg.commission?.maxChangeRate, msg.commission?.maxRate, event.height],
         });
+        endTimer?.();
         this.validatorAddressCache.set(msg.validatorAddress, consensus_address);
         if (msg.description) {
+          endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-description") ?? void 0;
           await db.query({
             name: "save-validator-description",
             text: "INSERT INTO validator_descriptions(validator_address, moniker, identity, avatar_url,  website, security_contact, details, height) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
             values: [msg.validatorAddress, msg.description?.moniker, msg.description?.identity, msg.description?.identity, msg.description?.website, msg.description?.securityContact, msg.description?.details, event.height],
           });
-
+          endTimer?.();
+          endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-commission") ?? void 0;
           await db.query({
             name: "save-validator-commission",
             text: "INSERT INTO validator_commissions(validator_address, commission, min_self_delegation, height) VALUES ($1,$2,$3,$4)",
             values: [msg.validatorAddress, msg.commission?.rate, msg.minSelfDelegation, event.height],
           });
+          endTimer?.();
         }
       },
     );
@@ -373,7 +475,9 @@ export class StakingModule implements Types.IndexingModule {
 
     this.indexer.on("genesis/value/app_state.staking.params", async (event) => {
       const db = this.pgIndexer.getInstance();
+      const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staking-params") ?? void 0;
       await db.query("INSERT INTO staking_params(params) VALUES($1)", [event.value]);
+      endTimer?.();
     });
 
     this.indexer.on("genesis/array/app_state.staking.validators", async (event) => {
@@ -382,7 +486,7 @@ export class StakingModule implements Types.IndexingModule {
       for (let i = 0; i < validators.length; i++) {
         const validator = validators[i];
         const consensus_address = Utils.chainAddressfromKeyhash(
-          (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", createHash("sha256")
+          this.chainPrefix + "valcons", createHash("sha256")
             .update(Buffer.from(validator.consensus_pubkey.pubkey.key, "base64"))
             .digest("hex")
             .slice(0, 40),
@@ -394,11 +498,14 @@ export class StakingModule implements Types.IndexingModule {
               "hex",
             )
             + ")";
+        let endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator") ?? void 0;
         await db.query({
           name: "save-validator",
           text: "INSERT INTO validators(consensus_address,consensus_pubkey) VALUES ($1,$2)",
           values: [consensus_address, consensus_pubkey],
         });
+        endTimer?.();
+        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-info") ?? void 0;
         await db.query({
           name: "save-validator-info",
           text: "INSERT INTO validator_infos(consensus_address, operator_address, self_delegate_address, max_change_rate, max_rate,height) VALUES ($1,$2,$3,$4,$5,$6)",
@@ -406,25 +513,29 @@ export class StakingModule implements Types.IndexingModule {
             consensus_address,
             validator.operator_address,
             Utils.chainAddressfromKeyhash(
-              process.env.CHAIN_PREFIX ?? "cosmos", Utils.keyHashfromAddress(validator.operator_address),
+              this.chainPrefix, Utils.keyHashfromAddress(validator.operator_address),
             ),
             validator.commission.commission_rates.max_change_rate,
             validator.commission.commission_rates.max_rate,
             null,
           ],
         });
+        endTimer?.();
+        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-description") ?? void 0;
         this.validatorAddressCache.set(validator.operator_address, consensus_address);
         await db.query({
           name: "save-validator-description",
           text: "INSERT INTO validator_descriptions(validator_address, moniker, identity, avatar_url,  website, security_contact, details, height) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
           values: [validator.operator_address, validator.description?.moniker, validator.description?.identity, validator.description?.identity, validator.description?.website, validator.description?.security_contact, validator.description?.details, null],
         });
-
+        endTimer?.();
+        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-commission") ?? void 0;
         await db.query({
           name: "save-validator-commission",
           text: "INSERT INTO validator_commissions(validator_address, commission, min_self_delegation, height) VALUES ($1,$2,$3,$4)",
           values: [validator.operator_address, validator.commission.commission_rates.rate, validator.min_self_delegation, null],
         });
+        endTimer?.();
       }
     });
 
@@ -505,9 +616,11 @@ export class StakingModule implements Types.IndexingModule {
     height: number,
   ) {
     const db = this.pgIndexer.getInstance();
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("tokens-to-shares-at-height") ?? void 0;
     const res = await db.query(
       "SELECT * FROM validator_voting_powers,validator_infos WHERE validator_address=validator_infos.operator_address AND validator_infos.consensus_address=$1 AND (validator_voting_powers.height<=$2 OR validator_voting_powers.height IS NULL) AND (validator_infos.height<=$2 OR validator_infos.height IS NULL) ORDER BY validator_voting_powers.height DESC NULLS LAST,validator_infos.height DESC NULLS LAST LIMIT 1", [validator, height],
     );
+    endTimer?.();
     if (res.rowCount && res.rowCount > 0) {
       const val = res.rows[0];
       const rate = new BigNumber(val.voting_power).dividedBy(
@@ -527,9 +640,11 @@ export class StakingModule implements Types.IndexingModule {
   ) {
     const consensus_address = await this.getConsensusAddress(validator, 0);
     const db = this.pgIndexer.getInstance();
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("shares-to-tokens-at-height") ?? void 0;
     const res = await db.query(
       "SELECT * FROM validator_voting_powers,validator_infos WHERE validator_address=validator_infos.operator_address AND validator_infos.consensus_address=$1 AND (validator_voting_powers.height<=$2 OR validator_voting_powers.height IS NULL) AND (validator_infos.height<=$2 OR validator_infos.height IS NULL) ORDER BY validator_voting_powers.height DESC NULLS LAST,validator_infos.height DESC NULLS LAST LIMIT 1", [consensus_address, height],
     );
+    endTimer?.();
     if (res.rowCount && res.rowCount > 0) {
       const val = res.rows[0];
       const rate = new BigNumber(val.voting_power).dividedBy(
@@ -544,17 +659,21 @@ export class StakingModule implements Types.IndexingModule {
 
   async saveStakingParams(params: StakingParams, height: number) {
     const db = this.pgIndexer.getInstance();
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staking-params") ?? void 0;
     await db.query(
       "INSERT INTO staking_params (params, height) VALUES ($1, $2)", [params, height],
     );
+    endTimer?.();
     this.indexer.log.verbose("Saved staking params at height: " + height);
   }
 
   async getStakingParams(height: bigint): Promise<StakingParams> {
     const db = this.pgIndexer.getInstance();
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-staking-params") ?? void 0;
     const params = await db.query(
       "SELECT * FROM staking_params WHERE height<=$1 OR height IS null ORDER BY height DESC NULLS LAST LIMIT 1", [height],
     );
+    endTimer?.();
     if (params.rows.length > 0) {
       return params.rows[0].params as StakingParams;
     }
@@ -575,9 +694,11 @@ export class StakingModule implements Types.IndexingModule {
 
   async getValidatorCommission(validator: string) {
     const db = this.pgIndexer.getInstance();
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-validator-commission") ?? void 0;
     const res = await db.query(
       "SELECT * FROM validator_commissions WHERE validator_address=$1 ORDER BY height DESC LIMIT 1", [validator],
     );
+    endTimer?.();
     if (res.rowCount == 0) {
       throw new Error("No such validator");
     }
@@ -588,9 +709,11 @@ export class StakingModule implements Types.IndexingModule {
 
   async getValidatorDesciption(validator: string) {
     const db = this.pgIndexer.getInstance();
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-validator-description") ?? void 0;
     const res = await db.query(
       "SELECT * FROM validator_descriptions WHERE validator_address=$1 ORDER BY height DESC LIMIT 1", [validator],
     );
+    endTimer?.();
     if (res.rowCount == 0) {
       throw new Error("No such validator");
     }
@@ -607,9 +730,11 @@ export class StakingModule implements Types.IndexingModule {
     height: number,
   ) {
     const db = this.pgIndexer.getInstance();
+    let endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-staked-balance") ?? void 0;
     const res = await db.query(
       "SELECT to_json(amount), shares FROM staked_balances WHERE delegator=$1 AND validator=$2 ORDER BY height DESC LIMIT 1", [delegator, validatorSrc],
     );
+    endTimer?.();
     if (res.rowCount != 0) {
       const shares = await this.tokensToSharesAtHeight(
         BigInt(amount.amount), validatorSrc, height,
@@ -618,9 +743,12 @@ export class StakingModule implements Types.IndexingModule {
         BigInt(res.rows[0].to_json.amount) - BigInt(amount.amount)
       ).toString();
       const newShares = BigNumber(res.rows[0].shares).minus(shares);
+
+      endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
       await db.query(
         "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4,$5)", [delegator, validatorSrc, "(\"" + amount.denom + "\", \"" + newAmount + "\")", newShares.toPrecision(), height],
       );
+      endTimer?.();
     }
     await this.delegate(delegator, validatorDest, amount, height);
   }
@@ -630,13 +758,17 @@ export class StakingModule implements Types.IndexingModule {
     unbondingPeriod: number,
   ): Promise<bigint> {
     const db = this.pgIndexer.getInstance();
+    let endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-block") ?? void 0;
     const timestamp = await db.query("SELECT * FROM blocks WHERE height=$1", [height]);
+    endTimer?.();
     if (timestamp.rowCount && timestamp.rowCount > 0) {
       const date = new Date(timestamp.rows[0].timestamp);
       const unbondingTime = new Date(date.getTime() - unbondingPeriod);
+      endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-block-by-timestamp") ?? void 0;
       const unbondingHeight = await db.query(
         "SELECT * FROM blocks WHERE timestamp<=$1 ORDER BY height desc LIMIT 1", [unbondingTime],
       );
+      endTimer?.();
       if (unbondingHeight.rowCount && unbondingHeight.rowCount > 0) {
         return BigInt(unbondingHeight.rows[0].height);
       }
@@ -655,9 +787,12 @@ export class StakingModule implements Types.IndexingModule {
     height: bigint,
   ) {
     const db = this.pgIndexer.getInstance();
+
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-delegator-delegations") ?? void 0;
     const delegators = await db.query(
       "SELECT DISTINCT ON(delegator) delegator, validator, shares, height FROM staked_balances WHERE validator=$1 ORDER BY delegator, height DESC NULLS LAST", [validator],
     );
+    endTimer?.();
     if (delegators.rowCount && delegators.rowCount > 0) {
       for (let i = 0; i < delegators.rows.length; i++) {
         const delegation = delegators.rows[i];
@@ -700,6 +835,7 @@ export class StakingModule implements Types.IndexingModule {
           delegation.delegation?.validatorAddress ?? "", 1,
         );
 
+        const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
         await db.query(
           "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4,$5)", [
             delegator,
@@ -715,6 +851,7 @@ export class StakingModule implements Types.IndexingModule {
             height,
           ],
         );
+        endTimer?.();
       }
     }
   }
@@ -728,11 +865,11 @@ export class StakingModule implements Types.IndexingModule {
         while (hasMore) {
           const pagination = nextKey
             ? {
-              limit: 250n,
+              limit: PAGINATION_LIMITS.DELEGATIONS,
               key: nextKey,
             }
             : {
-              limit: 250n,
+              limit: PAGINATION_LIMITS.DELEGATIONS,
             };
           const q = QueryValidatorDelegationsRequest.fromPartial({
             validatorAddr: validators[i].operatorAddress,
@@ -760,7 +897,7 @@ export class StakingModule implements Types.IndexingModule {
               const consensus_address = await this.getConsensusAddress(
                 delegation.delegation?.validatorAddress ?? "", 1,
               );
-
+              const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
               await db.query(
                 "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4,$5)", [
                   delegation.delegation.delegatorAddress,
@@ -776,6 +913,7 @@ export class StakingModule implements Types.IndexingModule {
                   1,
                 ],
               );
+              endTimer?.();
             }
           }
         }
@@ -796,39 +934,50 @@ export class StakingModule implements Types.IndexingModule {
         val.delegator_shares,
       );
       const delegator_shares = BigNumber(amount.amount).dividedBy(rate);
+
+      let endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-staked-balance") ?? void 0;
       const res = await db.query(
         "SELECT to_json(amount),shares FROM staked_balances WHERE delegator=$1 AND validator=$2 ORDER BY height DESC LIMIT 1", [delegator, validator],
       );
+      endTimer?.();
       if (res.rowCount == 0) {
+        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
         await db.query(
           "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4, $5)", [delegator, validator, "(\"" + amount.denom + "\", \"" + amount.amount + "\")", delegator_shares.toPrecision(), height],
         );
+        endTimer?.();
       }
       else {
         amount.amount = (
           BigInt(amount.amount) + BigInt(res.rows[0].to_json.amount)
         ).toString();
         const shares = new BigNumber(res.rows[0].shares).plus(delegator_shares);
+        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
         await db.query(
           "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4, $5)", [delegator, validator, "(\"" + amount.denom + "\", \"" + amount.amount + "\")", shares.toPrecision(), height],
         );
+        endTimer?.();
       }
     }
   }
 
   async getLatestValidatorVotingPower(validator: string) {
     const db = this.pgIndexer.getInstance();
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-latest-validator-voting-power") ?? void 0;
     const res = await db.query(
       "SELECT * FROM validator_voting_powers WHERE validator_address=$1 ORDER BY validator_voting_powers.height DESC NULLS LAST LIMIT 1", [validator],
     );
+    endTimer?.();
     return res.rowCount && res.rowCount > 0 ? res.rows[0] : null;
   }
 
   async cacheLatestValidatorStatuses() {
     const db = this.pgIndexer.getInstance();
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-latest-validator-statuses") ?? void 0;
     const res = await db.query(
       "SELECT DISTINCT ON(validator_address) validator_address, jailed, status, height FROM validator_status ORDER BY validator_address, height DESC NULLS LAST",
     );
+    endTimer?.();
     if (res.rowCount) {
       for (let i = 0; i < res.rowCount; i++) {
         const vp = await this.getLatestValidatorVotingPower(res.rows[i].validator_address);
@@ -856,13 +1005,16 @@ export class StakingModule implements Types.IndexingModule {
         );
         const cache = this.validatorCache.get(consensus_address);
         if (!cache || cache.status != bondStatusToJSON(val.status) || cache.jailed != val.jailed) {
+          const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-status") ?? void 0;
           await db.query({
             name: "save-validator-status",
             text: "INSERT INTO validator_status(validator_address, status, jailed, height) VALUES($1,$2,$3,$4)",
             values: [val.operatorAddress, bondStatusToJSON(val.status), val.jailed, height],
           });
+          endTimer?.();
         }
         if (!cache || !(cache.tokens == BigInt(val.tokens))) {
+          const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-voting-power") ?? void 0;
           await db.query({
             name: "save-validator-vp",
             text: "INSERT INTO validator_voting_powers(validator_address, voting_power, delegator_shares, height) VALUES($1,$2,$3,$4)",
@@ -875,6 +1027,7 @@ export class StakingModule implements Types.IndexingModule {
               height,
             ],
           });
+          endTimer?.();
         }
         this.validatorCache.set(consensus_address, {
           status: bondStatusToJSON(val.status),
@@ -886,16 +1039,18 @@ export class StakingModule implements Types.IndexingModule {
         });
       }
       catch (_e) {
-
-      /* Validator created in this block */
+        // Validator may have been created in this block and not yet cached
+        this.indexer.log.debug(`Validator ${val.operatorAddress} not found in cache, likely created in current block`);
       }
     }
   }
 
   async savePool(pool: Pool, height?: number) {
     const db = this.pgIndexer.getInstance();
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staking-pool") ?? void 0;
     await db.query(
       "INSERT INTO staking_pool(bonded_tokens,not_bonded_tokens,height) VALUES($1,$2,$3) ON CONFLICT ON CONSTRAINT unique_pool DO NOTHING", [pool.bondedTokens, pool.notBondedTokens, height],
     );
+    endTimer?.();
   }
 }

@@ -23,7 +23,7 @@ import {
   EcleciaIndexer, Types,
 } from "@eclesia/indexer-engine";
 import {
-  Utils,
+  Utils, Validation,
 } from "@eclesia/indexer-engine";
 import {
   Tx,
@@ -59,8 +59,13 @@ export class FullBlocksModule implements Types.IndexingModule {
   /** This module provides both blocks and transactions data */
   public provides: string[] = ["blocks", "transactions"];
 
+  /** Validated chain prefix for address generation */
+  private chainPrefix: string;
+
   constructor(registry: [string, GeneratedType][]) {
     this.registry = registry;
+    // Validate and cache chain prefix at initialization
+    this.chainPrefix = Validation.getChainPrefix("cosmos");
   }
 
   /**
@@ -115,6 +120,7 @@ export class FullBlocksModule implements Types.IndexingModule {
       const block_results = event.value.block_results;
       const db = this.pgIndexer.getInstance();
 
+      const endTimer = this.indexer.prometheus?.timeDatabaseQuery("add-block") ?? void 0;
       // Insert block data with comprehensive metadata
       await db.query({
         name: "add-block",
@@ -126,20 +132,21 @@ export class FullBlocksModule implements Types.IndexingModule {
           calculateGas(block_results).toString(),
           // Convert proposer address to bech32 format with validator consensus prefix
           Utils.chainAddressfromKeyhash(
-            (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", Buffer.from(block.block.header.proposerAddress).toString("hex"),
+            this.chainPrefix + "valcons", Buffer.from(block.block.header.proposerAddress).toString("hex"),
           ),
           block.block.header.time,
           // Store validator signatures in structured JSON format
           JSONStringify(block.block.lastCommit?.signatures.map((x) => {
             return {
               validator: Utils.chainAddressfromKeyhash(
-                (process.env.CHAIN_PREFIX ?? "cosmos") + "valcons", Buffer.from(x.validatorAddress ?? new Uint8Array()).toString("hex"),
+                this.chainPrefix + "valcons", Buffer.from(x.validatorAddress ?? new Uint8Array()).toString("hex"),
               ),
               block_id: x.blockIdFlag,
             };
           }) ?? []),
         ],
       });
+      endTimer?.();
       // Process each transaction in the block
       for (let i = 0; i < block.block.txs.length; i++) {
         const txraw = block.block.txs[i];
@@ -195,9 +202,12 @@ export class FullBlocksModule implements Types.IndexingModule {
    */
   async getBlockHeightTime(dt: Date) {
     const db = this.pgIndexer.getInstance();
+
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-block-height") ?? void 0;
     const block = await db.query(
       "SELECT * FROM blocks WHERE blocks.timestamp <= $1 ORDER BY blocks.timestamp DESC LIMIT 1;", [dt],
     );
+    endTimer?.();
     if (block.rowCount && block.rowCount > 0) {
       return block.rows[0];
     }
@@ -250,9 +260,12 @@ export class FullBlocksModule implements Types.IndexingModule {
    */
   async updateBlockTimeMinuteAgo(blocktime: number, height: number) {
     const db = this.pgIndexer.getInstance();
+
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("update-blocktime-minute") ?? void 0;
     await db.query(
       "INSERT INTO average_block_time_per_minute(average_time, height) VALUES ($1, $2) ON CONFLICT (one_row_id) DO UPDATE SET average_time = excluded.average_time, height = excluded.height WHERE average_block_time_per_minute.height <= excluded.height", [blocktime, height],
     );
+    endTimer?.();
   }
 
   /**
@@ -263,9 +276,12 @@ export class FullBlocksModule implements Types.IndexingModule {
    */
   async updateBlockTimeHourAgo(blocktime: number, height: number) {
     const db = this.pgIndexer.getInstance();
+
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("update-blocktime-hour") ?? void 0;
     await db.query(
       "INSERT INTO average_block_time_per_hour(average_time, height) VALUES ($1, $2) ON CONFLICT (one_row_id) DO UPDATE SET average_time = excluded.average_time, height = excluded.height WHERE average_block_time_per_hour.height <= excluded.height", [blocktime, height],
     );
+    endTimer?.();
   }
 
   /**
@@ -276,9 +292,11 @@ export class FullBlocksModule implements Types.IndexingModule {
    */
   async updateBlockTimeDayAgo(blocktime: number, height: number) {
     const db = this.pgIndexer.getInstance();
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("update-blocktime-day") ?? void 0;
     await db.query(
       "INSERT INTO average_block_time_per_day(average_time, height) VALUES ($1, $2) ON CONFLICT (one_row_id) DO UPDATE SET average_time = excluded.average_time, height = excluded.height WHERE average_block_time_per_day.height <= excluded.height", [blocktime, height],
     );
+    endTimer?.();
   }
 
   /**
@@ -297,6 +315,8 @@ export class FullBlocksModule implements Types.IndexingModule {
     registryMap: Map<string, GeneratedType>,
   ) {
     const db = this.pgIndexer.getInstance();
+
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-transaction") ?? void 0;
     await db.query({
       name: "add-tx",
       text: "INSERT INTO transactions(hash,height,success,messages,memo,signatures,signer_infos,fee,gas_wanted,gas_used,raw_log,logs) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
@@ -332,5 +352,6 @@ export class FullBlocksModule implements Types.IndexingModule {
         JSON.stringify(Utils.toPlainObject(txdata.events)),
       ],
     });
+    endTimer?.();
   }
 }

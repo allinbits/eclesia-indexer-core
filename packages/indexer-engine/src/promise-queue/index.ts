@@ -5,6 +5,8 @@
  * - size() is always at minimum 1 item which is the promise for the next enqueued item
  */
 export class PromiseQueue<T> {
+  /** Optional error handler for enqueue failures */
+  private errorHandler?: (error: unknown) => void;
   /** Array of promises representing queued items */
   private items: Array<Promise<T>>;
 
@@ -23,11 +25,12 @@ export class PromiseQueue<T> {
   /** Promise that resolves when it's safe to enqueue more items */
   private continuePromise: Promise<boolean>;
 
-  constructor(batchSize: number) {
+  constructor(batchSize: number, errorHandler?: (error: unknown) => void) {
     const nextVal = new Promise<T>((resolve, _reject) => {
       this.enqueuer = resolve;
     });
     this.batchSize = batchSize;
+    this.errorHandler = errorHandler;
     this.continuePromise = new Promise<boolean>((resolve, _reject) => {
       this.batcher = resolve;
     });
@@ -49,7 +52,10 @@ export class PromiseQueue<T> {
       }
     }
     catch (e) {
-      console.error("Enqueing rejected data: " + e);
+      if (this.errorHandler) {
+        this.errorHandler(e);
+      }
+      // If no error handler provided, silently ignore (existing behavior for backward compatibility)
     }
   }
 
@@ -101,6 +107,9 @@ export class PromiseQueue<T> {
  * Used by the indexer for managing block processing queues
  */
 export class CircularBuffer<T> {
+  /** Optional error handler for enqueue failures */
+  private errorHandler?: (error: unknown) => void;
+
   /** Fixed-size array of promises representing buffered items */
   private items: Array<Promise<T>>;
 
@@ -128,7 +137,7 @@ export class CircularBuffer<T> {
   /** Index of the next available slot for enqueueing */
   private nextAvail: number = 0;
 
-  constructor(batchSize: number) {
+  constructor(batchSize: number, errorHandler?: (error: unknown) => void) {
     if (batchSize <= 1) {
       throw new Error("Batch size must be greater than 1");
     }
@@ -137,6 +146,7 @@ export class CircularBuffer<T> {
     });
     this.items = new Array<Promise<T>>(batchSize);
     this.batchSize = batchSize;
+    this.errorHandler = errorHandler;
     this.items[this.nextAvail] = nextVal;
     this.count = 1;
     this.nextAvail++;
@@ -170,7 +180,10 @@ export class CircularBuffer<T> {
       }
     }
     catch (e) {
-      console.error("Enqueing rejected data: " + e);
+      if (this.errorHandler) {
+        this.errorHandler(e);
+      }
+      // If no error handler provided, silently ignore (existing behavior for backward compatibility)
     }
   }
 

@@ -1,13 +1,14 @@
 {
   "name": "@eclesia/basic-pg-indexer",
-  "version": "2.9.9",
+  "version": "2.10.0",
   "description": "Basic PostGres eclesia indexer",
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && tsdown",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "test": "vitest"
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "files": [
     "dist/",

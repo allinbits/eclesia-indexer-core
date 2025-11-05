@@ -1,0 +1,42 @@
+{
+  "genesis_time": "2021-01-01T00:00:00Z",
+  "chain_id": "test-chain-1",
+  "initial_height": "1",
+  "app_state": {
+    "auth": {
+      "accounts": [
+        {
+          "@type": "/cosmos.auth.v1beta1.BaseAccount",
+          "address": "cosmos1test1address",
+          "pub_key": null,
+          "account_number": "0",
+          "sequence": "0"
+        }
+      ]
+    },
+    "bank": {
+      "balances": [
+        {
+          "address": "cosmos1test1address",
+          "coins": [
+            {
+              "denom": "stake",
+              "amount": "1000000000"
+            }
+          ]
+        }
+      ]
+    },
+    "staking": {
+      "params": {
+        "unbonding_time": "1814400s",
+        "max_validators": 100,
+        "max_entries": 7,
+        "historical_entries": 10000,
+        "bond_denom": "stake",
+        "min_commission_rate": "0.000000000000000000"
+      },
+      "validators": []
+    }
+  }
+}

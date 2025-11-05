@@ -33,6 +33,8 @@ interface ProjectConfig {
   logLevel: string
   processGenesis: boolean
   genesisPath: string | null
+  enablePrometheus: boolean
+  prometheusPort: number
   modules: string[]
   packageManager: "npm" | "yarn" | "pnpm"
 }
@@ -289,6 +291,8 @@ async function copyTemplateFiles(config: ProjectConfig, targetDir: string): Prom
 
 async function processTemplates(config: ProjectConfig, targetDir: string): Promise<void> {
   let polling = false;
+  config.enablePrometheus = false;
+  config.prometheusPort = 9090;
   const url = new URL(config.rpcEndpoint);
   if (url.protocol === "http:" || url.protocol === "https:") {
     polling = true;
@@ -307,6 +311,8 @@ async function processTemplates(config: ProjectConfig, targetDir: string): Promi
     MINIMAL: config.minimal ? "true" : "false",
     START_HEIGHT: config.startHeight.toString(),
     CHAIN_PREFIX: config.chainPrefix,
+    ENABLE_PROMETHEUS: config.enablePrometheus ? "true" : "false",
+    PROMETHEUS_PORT: config.prometheusPort.toString(),
     MODULES_IMPORT: generateModulesImport(config),
     PACKAGE_MANAGER: config.packageManager,
     MODULES_INSTANTIATION: generateModulesInstantiation(config),

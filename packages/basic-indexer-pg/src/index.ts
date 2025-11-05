@@ -1,13 +1,36 @@
 /* eslint-disable @stylistic/no-multi-spaces */
 import {
-  EcleciaIndexer,
-} from "@eclesia/indexer-engine";
-import {
-  Types, Utils,
+  ConfigurationError, DB_CLIENT_RECYCLE_COUNT, EcleciaIndexer, Types, Utils,
 } from "@eclesia/indexer-engine";
 import {
   Client,
 } from "pg";
+
+/**
+ * Validates a PostgreSQL connection string
+ * @param connectionString - The connection string to validate
+ * @throws {ConfigurationError} If connection string is invalid
+ */
+function validatePostgresConnectionString(connectionString: string): void {
+  if (!connectionString || typeof connectionString !== "string") {
+    throw new ConfigurationError("Database connection string is required and must be a string", {
+      value: connectionString,
+    });
+  }
+
+  // Basic PostgreSQL connection string format validation
+  // Format: postgres://user:password@host:port/database
+  const pgRegex = /^postgres(?:ql)?:\/\/(?:([^:]+)(?::([^@]+))?@)?([^:/]+)(?::(\d+))?\/(.+)$/;
+
+  if (!pgRegex.test(connectionString)) {
+    throw new ConfigurationError(
+      "Database connection string must be in format: postgres://user:password@host:port/database",
+      {
+        format: "postgres://user:password@host:port/database",
+      },
+    );
+  }
+}
 
 /** Configuration options for the PostgreSQL indexer */
 export type PgIndexerConfig = {
@@ -21,6 +44,8 @@ export type PgIndexerConfig = {
   pollingInterval: number                    // Interval between polls (ms) when using polling
   minimal: boolean                           // Whether to use minimal indexing (blocks only)
   genesisPath?: string                       // Path to genesis file for processing
+  enablePrometheus?: boolean                  // Enable Prometheus metrics server
+  prometheusPort?: number                     // Prometheus metrics server port
   dbConnectionString: string                 // PostgreSQL connection string
 };
 
@@ -40,7 +65,7 @@ export class PgIndexer {
   private instanceConnected: boolean = false;
 
   /** Indexer configuration */
-  private config: PgIndexerConfig;
+  public config: PgIndexerConfig;
 
   /** Core indexer engine instance */
   public indexer: EcleciaIndexer;
@@ -66,6 +91,9 @@ export class PgIndexer {
    * @param modules - Optional array of indexing modules to install immediately
    */
   constructor(config: PgIndexerConfig, modules: Types.IndexingModule[] = []) {
+    // Validate database connection string
+    validatePostgresConnectionString(config.dbConnectionString);
+
     this.config = config;
 
     // Initialize PostgreSQL client with connection string
@@ -237,6 +265,8 @@ export class PgIndexer {
       if (status) {
         await this.db.query("COMMIT");
         this.indexer.log.silly("Transaction committed");
+        // Only increment counter on successful commit
+        this.clientReuse++;
       }
       else {
         await this.db.query("ROLLBACK");
@@ -249,8 +279,7 @@ export class PgIndexer {
     }
     finally {
       // Database client recycling to prevent long-running connection issues
-      this.clientReuse++;
-      if (this.clientReuse >= 1500) {
+      if (this.clientReuse >= DB_CLIENT_RECYCLE_COUNT) {
         this.indexer.log.info("Recycling database client");
         await this.db.end();
         this.db = new Client(this.config.dbConnectionString);
@@ -260,6 +289,7 @@ export class PgIndexer {
         );
         this.db.on("error", (err) => {
           this.indexer.log.error("Error in db: " + err);
+          this.indexer.prometheus?.recordError("database");
         });
         await this.db.connect();
         this.instanceConnected = true;
