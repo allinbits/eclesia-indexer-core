@@ -28,7 +28,9 @@ services:
       - CHAIN_PREFIX={{CHAIN_PREFIX}}
       - START_HEIGHT={{START_HEIGHT}}
     volumes:
-      - {{GENESIS_PATH}}:/usr/src/app/genesis.json
+      - {{GENESIS_PATH}}:/usr/src/app/genesis.json      
+    ports:
+      - "9090:9090"
     depends_on:
       postgres:
         condition: service_healthy

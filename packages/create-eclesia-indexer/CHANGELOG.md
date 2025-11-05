@@ -1,5 +1,11 @@
 # create-eclesia-indexer
 
+## 1.1.0
+
+### Minor Changes
+
+- 6515c03: CEI points to prerelease
+
 ## 1.1.0-next.0
 
 ### Minor Changes

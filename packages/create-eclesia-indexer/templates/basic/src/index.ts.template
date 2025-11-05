@@ -16,7 +16,9 @@ const config: PgIndexerConfig = {
   pollingInterval: 3000,
   processGenesis: process.env.PROCESS_GENESIS == "true" || false,
   minimal: process.env.MINIMAL == "true" || false,
-  genesisPath: "./genesis.json",
+  genesisPath: "./genesis.json",  
+  enablePrometheus: process.env.ENABLE_PROMETHEUS == "true" || false,
+  prometheusPort: Number(process.env.PROMETHEUS_PORT) || {{PROMETHEUS_PORT}},
   dbConnectionString: process.env.PG_CONNECTION_STRING || "{{PG_CONNECTION_STRING}}",
 };
 
