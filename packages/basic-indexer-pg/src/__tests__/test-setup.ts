@@ -31,6 +31,8 @@ export function createTestConfig(): PgIndexerConfig {
     logLevel: "info",
     usePolling: false,
     pollingInterval: 1000,
+    enablePrometheus: false,
+    prometheusPort: 9090,
     minimal: false,
     dbConnectionString: "postgresql://user:pass@localhost:5432/testdb",
   };

@@ -1,5 +1,11 @@
 # @eclesia/indexer-engine
 
+## 2.10.0-next.2
+
+### Patch Changes
+
+- Update Indexer Config types
+
 ## 2.10.0-next.1
 
 ### Patch Changes
