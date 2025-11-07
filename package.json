@@ -27,10 +27,10 @@
   "license": "ISC",
   "devDependencies": {
     "@changesets/cli": "^2.29.7",
-    "@types/node": "^22.14.0",
+    "@types/node": "^24.10.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.6",
     "typedoc": "^0.28.14",
-    "vitest": "^3.2.4"
+    "vitest": "^4.0.7"
   }
 }

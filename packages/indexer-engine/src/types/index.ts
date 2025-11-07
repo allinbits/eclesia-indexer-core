@@ -62,7 +62,7 @@ export type WithHeightAndUUID<T> = {
 /** Function signature for emitting events asynchronously */
 export type EmitFunc<K extends keyof WithHeightAndUUID<EventMap>> = (
   t: K,
-  e: WithHeightAndUUID<EventMap>[K]
+  e: WithHeightAndUUID<EventMap>[K],
 ) => Promise<void | void[]>;
 
 export type LogEvent = {

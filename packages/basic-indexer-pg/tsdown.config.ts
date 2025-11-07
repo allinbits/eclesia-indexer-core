@@ -14,7 +14,7 @@ export default defineConfig([
     attw: true,                                  // Type checking
     platform: "node",                            // Node.js target
     nodeProtocol: "strip",                       // Strip node: prefix
-    target: "es2020",                             // ES2020 target
+    target: "es2022",                             // es2022 target
     outDir: "./dist",                             // Output directory
     clean: true,                                 // Clean before build
     sourcemap: true,                             // Generate sourcemaps
@@ -27,7 +27,7 @@ export default defineConfig([
     unbundle: true,                               // Keep modules separate
     attw: true,                                  // Type checking
     platform: "node",                            // Node.js target
-    target: "es2020",                             // ES2020 target
+    target: "es2022",                             // es2022 target
     outDir: "./dist",                             // Output directory
     clean: true,                                 // Clean before build
     sourcemap: true,                             // Generate sourcemaps
