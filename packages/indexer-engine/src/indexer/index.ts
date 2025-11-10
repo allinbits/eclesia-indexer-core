@@ -138,6 +138,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
   /** WebSocket subscription for new block notifications */
   private subscription: ReturnType<CometClient["subscribeNewBlock"]> | null = null;
 
+  /** Timeout handler for block reception */
+  private blockTimeout: NodeJS.Timeout | null = null;
+
   /**
    * Creates a new Eclesia indexer instance
    * @param config - Indexer configuration options
@@ -880,6 +883,12 @@ export class EcleciaIndexer extends EclesiaEmitter {
   }
 
   private newBlockReceived(height: number): void {
+    if (this.blockTimeout) {
+      clearTimeout(this.blockTimeout);
+    }
+    this.blockTimeout = setTimeout(() => {
+      this.tryToRecover = true;
+    }, 30000);
     this.log.info("Received new block: %d",
       height);
     if (height == this.latestHeight) {
