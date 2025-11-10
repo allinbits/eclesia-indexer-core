@@ -97,6 +97,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
   /** Prometheus HTTP server instance */
   private prometheusServer: FastifyInstance | null = null;
 
+  /** Indicates if the indexer has started */
+  private started: boolean = false;
+
   /** Queue for managing block processing pipeline */
   private blockQueue: BlockQueue;
 
@@ -104,7 +107,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
   private latestHeight!: number;
 
   /** Next block height to process */
-  private heightToProcess!: number;
+  public heightToProcess!: number;
 
   /** Whether the indexer has been initialized */
   private initialized = false;
@@ -237,7 +240,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
       },
       (err) => {
         if (err) {
-          this.log.error(err);
+          this.log.error("Prometheus error: " + err);
           this.prometheus?.recordError("metrics_server");
           this.emit("fatal-error", {
             error: err,
@@ -275,7 +278,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     },
     (err) => {
       if (err) {
-        this.log.error(err);
+        this.log.error("Health check server error: " + err);
         this.prometheus?.recordError("health_check_server");
         this.emit("fatal-error", {
           error: err,
@@ -325,14 +328,19 @@ export class EcleciaIndexer extends EclesiaEmitter {
       return true;
     }
     catch (error) {
-      this.log.error(error);
+      this.log.error("RPC connection error: " + error);
       this.prometheus?.recordError("connect_rpc_error");
       this.tryToRecover = true;
       return false;
     }
   }
 
+  public stop() {
+    this.started = false;
+  }
+
   public async start() {
+    this.started = true;
     if (this.blockQueue) {
       this.blockQueue.clear();
       this.log.verbose("Starting, clearing block queue");
@@ -402,7 +410,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
       this.setStatus("FAILED");
       throw e;
     }
-
+    this.log.debug("Starting main processing loop");
     this.tryToRecover = false;
     this.fetcher().catch((e) => {
       this.setStatus("FAILED");
@@ -413,7 +421,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
     const hrTime = process.hrtime();
     let ms = hrTime[0] * 1000000 + hrTime[1] / 1000;
-    while (this.blockQueue.size() > 0 && !this.tryToRecover) {
+    while (this.blockQueue.size() > 0 && !this.tryToRecover && this.started && (this.config.endHeight === undefined || this.heightToProcess <= this.config.endHeight)) {
       if (this.config.enablePrometheus) {
         this.prometheus!.updateRetryCount(this.retryCount);
       }
@@ -498,7 +506,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
       }
       catch (e) {
         this.prometheus?.recordError("block_processing_error");
-        this.log.error("" + e);
+        this.log.error("Block processing error: " + e);
         this.setStatus("FAILED");
         try {
           await this.config.endTransaction(false);
@@ -514,19 +522,25 @@ export class EcleciaIndexer extends EclesiaEmitter {
       this.retryCount = 0;
       this.setStatus("OK");
     }
-    if (this.retryCount < 3) {
-      this.log.debug("Indexer retryCount: " + this.retryCount);
-      this.log.info("Indexer is restarting");
-      setTimeout(() => this.start(),
-        this.retryCount * 5000);
+    if (this.config.endHeight !== undefined && this.heightToProcess >= this.config.endHeight!) {
+      this.log.info("Reached configured end height. Stopping indexer.");
+      this.stop();
     }
-    else {
-      this.log.info("Indexer failed too many times. Exiting.");
-      this.emit("fatal-error", {
-        error: new Error("Max retry attempts exceeded"),
-        message: "Indexer failed too many times",
-        retryCount: this.retryCount,
-      });
+    if (this.started) {
+      if (this.retryCount < 3) {
+        this.log.debug("Indexer retryCount: " + this.retryCount);
+        this.log.info("Indexer is restarting");
+        setTimeout(() => this.start(),
+          this.retryCount * 5000);
+      }
+      else {
+        this.log.info("Indexer failed too many times. Exiting.");
+        this.emit("fatal-error", {
+          error: new Error("Max retry attempts exceeded"),
+          message: "Indexer failed too many times",
+          retryCount: this.retryCount,
+        });
+      }
     }
   }
 
@@ -585,9 +599,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
       endTimer = this.prometheus!.timeBlockProcessing();
     }
     const height = block.block.header.height;
+    this.heightToProcess = height;
     this.log.debug("Processing block: %d",
       height);
-
     // Initialize height & timestamp to be used for this block-processing run
     const timestamp = toRfc3339WithNanoseconds(block.block.header.time);
 
@@ -825,7 +839,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }
       }
       catch (e) {
-        this.log.error(e);
+        this.log.error("Fetching error: " + e);
         break;
       }
     }
@@ -910,7 +924,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }
       }
       catch (e) {
-        this.log.error("" + e);
+        this.log.error("New Block Received error: " + e);
       }
     }
     else {

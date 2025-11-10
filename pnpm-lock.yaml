@@ -264,6 +264,9 @@ importers:
       '@arethetypeswrong/core':
         specifier: ^0.18.2
         version: 0.18.2
+      '@cosmjs/encoding':
+        specifier: ^0.36.0
+        version: 0.36.0
       '@eslint/js':
         specifier: ^9.39.1
         version: 9.39.1

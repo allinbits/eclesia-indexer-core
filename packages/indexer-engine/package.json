@@ -4,6 +4,7 @@
   "description": "Core eclesia indexer engine",
   "scripts": {
     "build": "tsc --noEmit && tsdown",
+    "bench": "vitest bench --config benchmarks/vitest.config.ts",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "test": "vitest",
@@ -26,6 +27,7 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@arethetypeswrong/core": "^0.18.2",
+    "@cosmjs/encoding": "^0.36.0",
     "@eslint/js": "^9.39.1",
     "@stylistic/eslint-plugin": "^5.5.0",
     "@types/node": "^24.10.0",
