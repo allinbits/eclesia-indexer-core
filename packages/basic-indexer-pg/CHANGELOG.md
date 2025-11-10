@@ -1,5 +1,11 @@
 # @eclesia/basic-pg-indexer
 
+## 2.11.1
+
+### Patch Changes
+
+- Refactor PgIndexerConfig type
+
 ## 2.11.0
 
 ### Minor Changes
