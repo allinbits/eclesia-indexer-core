@@ -1,5 +1,11 @@
 # @eclesia/basic-pg-indexer
 
+## 2.11.2
+
+### Patch Changes
+
+- Fix type export
+
 ## 2.11.1
 
 ### Patch Changes

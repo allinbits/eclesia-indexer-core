@@ -1,5 +1,11 @@
 # @eclesia/indexer-engine
 
+## 2.11.1
+
+### Patch Changes
+
+- Fix type export
+
 ## 2.11.0
 
 ### Minor Changes
