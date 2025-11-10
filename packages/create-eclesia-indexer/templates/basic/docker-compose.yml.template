@@ -31,6 +31,7 @@ services:
       - {{GENESIS_PATH}}:/usr/src/app/genesis.json      
     ports:
       - "9090:9090"
+      - "8888:8888"
     depends_on:
       postgres:
         condition: service_healthy
@@ -38,7 +39,7 @@ services:
   graphql-engine:
     image: hasura/graphql-engine:v2.38.0
     ports:
-      - "8080:8080"
+      - "8888:8888"
     restart: always
     environment:
       ## postgres database to store Hasura metadata

@@ -14,7 +14,7 @@ export default defineConfig([
     attw: true,                            // Run @arethetypeswrong/core checks
     platform: "node",                      // Target Node.js environment
     nodeProtocol: "strip",                 // Remove "node:" protocol prefix
-    target: "es2020",                       // Target ES2020 JavaScript
+    target: "es2022",                       // Target es2022 JavaScript
     outDir: "./dist",                       // Output directory
     clean: true,                           // Clean output directory before build
     sourcemap: true,                       // Generate source maps
@@ -26,7 +26,7 @@ export default defineConfig([
     unbundle: true,                         // Keep modules separate (don't bundle)
     attw: true,                            // Run @arethetypeswrong/core checks
     platform: "node",                      // Target Node.js environment
-    target: "es2020",                       // Target ES2020 JavaScript
+    target: "es2022",                       // Target es2022 JavaScript
     outDir: "./dist",                       // Output directory
     clean: true,                           // Clean output directory before build
     sourcemap: true,                       // Generate source maps

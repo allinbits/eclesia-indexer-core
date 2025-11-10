@@ -28,9 +28,11 @@ const mockLog = {
 };
 
 const mockPgIndexer = {
-  getInstance: vi.fn(() => ({
-    query: mockQuery,
-  })),
+  getInstance: vi.fn(function () {
+    return {
+      query: mockQuery,
+    };
+  }),
   beginTransaction: vi.fn().mockResolvedValue(undefined),
   endTransaction: vi.fn().mockResolvedValue(undefined),
   indexer: {

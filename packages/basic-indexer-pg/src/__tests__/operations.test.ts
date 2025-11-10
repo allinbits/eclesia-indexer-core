@@ -27,7 +27,7 @@ const mockClient: MockClient = {
 
 // Mock the pg Client
 vi.mock("pg", () => ({
-  Client: vi.fn(() => mockClient),
+  Client: vi.fn(function () { return mockClient; }),
 }));
 
 // Mock the EcleciaIndexer
@@ -35,18 +35,20 @@ vi.mock("@eclesia/indexer-engine", async () => {
   const actual = await vi.importActual<typeof import("@eclesia/indexer-engine")>("@eclesia/indexer-engine");
   return {
     ...actual,
-    EcleciaIndexer: vi.fn().mockImplementation(() => ({
-      log: {
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-        verbose: vi.fn(),
-        debug: vi.fn(),
-        silly: vi.fn(),
-      },
-      connect: vi.fn().mockResolvedValue(true),
-      start: vi.fn().mockResolvedValue(undefined),
-    })),
+    EcleciaIndexer: vi.fn().mockImplementation(function () {
+      return {
+        log: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          error: vi.fn(),
+          verbose: vi.fn(),
+          debug: vi.fn(),
+          silly: vi.fn(),
+        },
+        connect: vi.fn().mockResolvedValue(true),
+        start: vi.fn().mockResolvedValue(undefined),
+      };
+    }),
   };
 });
 

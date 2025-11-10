@@ -1,5 +1,11 @@
 # @eclesia/eclesia-indexer-core
 
+## 1.4.0
+
+### Minor Changes
+
+- Benchmark improvements and RPC bug
+
 ## 1.3.0
 
 ### Minor Changes

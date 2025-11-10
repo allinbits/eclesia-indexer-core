@@ -33,7 +33,8 @@ export type EcleciaIndexerConfig = {
   usePolling?: boolean                                           // Use polling instead of WebSocket subscription
   pollingInterval?: number                                       // Interval between polls in milliseconds
   minimal?: boolean                                              // Use minimal indexing mode (blocks only)
-  healthCheckPort?: number                                       // Port for health check HTTP server (default: 8080)
+  enableHealthcheck?: boolean                                    // Enable health check HTTP server
+  healthCheckPort?: number                                       // Port for health check HTTP server (default: 8888)
   enablePrometheus?: boolean                                     // Enable Prometheus metrics server
   prometheusPort?: number                                        // Port for Prometheus metrics server (default: 9090)
   init?: () => Promise<void>                                     // Custom initialization function
@@ -62,7 +63,7 @@ export type WithHeightAndUUID<T> = {
 /** Function signature for emitting events asynchronously */
 export type EmitFunc<K extends keyof WithHeightAndUUID<EventMap>> = (
   t: K,
-  e: WithHeightAndUUID<EventMap>[K]
+  e: WithHeightAndUUID<EventMap>[K],
 ) => Promise<void | void[]>;
 
 export type LogEvent = {

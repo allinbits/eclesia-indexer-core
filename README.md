@@ -295,6 +295,20 @@ docker-compose up -d      # Start PostgreSQL, indexer and Hasura instance
 - **Transaction Management**: Atomic database operations
 - **Memory Efficient**: Streaming JSON parsing for large datasets
 
+### Benchmarking
+
+Benchmark the indexer engine without needing an RPC node or database:
+
+```bash
+# Run all benchmarks
+pnpm run bench
+
+# Run specific benchmarks
+pnpm run bench engine-indexing
+```
+
+The benchmarking framework provides mock RPC and database clients for isolated performance testing. See [Benchmarking Guide](benchmarks/BENCHMARKING_GUIDE.md) for details.
+
 ## 🤝 Contributing
 
 This is a monorepo managed with PNPM workspaces:

@@ -6,6 +6,7 @@ export * from "./indexer"; // Main indexer class
 export {
   IndexerMetrics,
 } from "./metrics"; // Prometheus metrics
+export * as Mocks from "./mocks"; // Mock implementations for testing/benchmarking
 export * from "./promise-queue"; // Asynchronous queue management
 export * as Types from "./types"; // TypeScript type definitions
 export * as Utils from "./utils"; // Utility functions

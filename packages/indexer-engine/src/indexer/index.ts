@@ -41,7 +41,7 @@ import {
 import * as winston from "winston";
 
 import {
-  DEFAULT_BATCH_SIZE, DEFAULT_HEALTH_CHECK_PORT, DEFAULT_POLLING_INTERVAL_MS, DEFAULT_START_HEIGHT,
+  DEFAULT_BATCH_SIZE, DEFAULT_HEALTH_CHECK_PORT, DEFAULT_POLLING_INTERVAL_MS, DEFAULT_PROMETHEUS_PORT, DEFAULT_START_HEIGHT,
   GENESIS_BATCH_SIZE, PAGINATION_LIMITS, PERIODIC_INTERVALS, QUEUE_DEQUEUE_TIMEOUT_MS, RPC_TIMEOUT_MS,
 } from "../constants.js";
 import {
@@ -75,9 +75,10 @@ export const defaultIndexerConfig = {
   pollingInterval: DEFAULT_POLLING_INTERVAL_MS,       // Poll every 5 seconds when polling enabled
   shouldProcessGenesis: () => false,                  // Skip genesis processing by default
   minimal: true,                                      // Use minimal indexing by default
+  enableHealthcheck: true,                            // Enable health check server by default
   healthCheckPort: DEFAULT_HEALTH_CHECK_PORT,         // Default health check port
   enablePrometheus: false,                            // Disable Prometheus metrics server by default
-  prometheusPort: 9090,                               // Default Prometheus metrics server port
+  prometheusPort: DEFAULT_PROMETHEUS_PORT,           // Default Prometheus metrics server port
   init: () => Promise.resolve(),                      // No-op initialization function
   beginTransaction: () => Promise.resolve(),          // No-op transaction begin function
   endTransaction: (_status: boolean) => Promise.resolve(), // No-op transaction end function
@@ -92,10 +93,13 @@ export class EcleciaIndexer extends EclesiaEmitter {
   public config: EcleciaIndexerConfig;
 
   /** Fastify HTTP server for health checks */
-  private fastify: FastifyInstance;
+  private fastify: FastifyInstance | null = null;
 
   /** Prometheus HTTP server instance */
   private prometheusServer: FastifyInstance | null = null;
+
+  /** Indicates if the indexer has started */
+  private started: boolean = false;
 
   /** Queue for managing block processing pipeline */
   private blockQueue: BlockQueue;
@@ -104,7 +108,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
   private latestHeight!: number;
 
   /** Next block height to process */
-  private heightToProcess!: number;
+  public heightToProcess!: number;
 
   /** Whether the indexer has been initialized */
   private initialized = false;
@@ -135,6 +139,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
   /** WebSocket subscription for new block notifications */
   private subscription: ReturnType<CometClient["subscribeNewBlock"]> | null = null;
 
+  /** Timeout handler for block reception */
+  private blockTimeout: NodeJS.Timeout | null = null;
+
   /**
    * Creates a new Eclesia indexer instance
    * @param config - Indexer configuration options
@@ -154,6 +161,11 @@ export class EcleciaIndexer extends EclesiaEmitter {
     // Validate health check port if provided
     if (config.healthCheckPort !== undefined) {
       validatePort(config.healthCheckPort, "healthCheckPort");
+    }
+
+    // Validate prometheus port if provided
+    if (config.prometheusPort !== undefined) {
+      validatePort(config.prometheusPort, "prometheusPort");
     }
 
     // Validate start height if provided
@@ -220,35 +232,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
       // Full mode: also store validator information
       this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse, Uint8Array]>(this.config.batchSize, queueErrorHandler);
     }
-    if (this.config.enablePrometheus) {
-      this.prometheus = new IndexerMetrics();
-      this.prometheusServer = Fastify({
-        logger: false,
-      });
-      this.prometheusServer.get("/metrics",
-        async (_req, res) => {
-          res.header("Content-Type", this.prometheus!.registry.contentType);
-          res.send(await this.prometheus!.getMetrics());
-        },
-      );
-      this.prometheusServer.listen({
-        port: this.config.prometheusPort,
-        host: "0.0.0.0",
-      },
-      (err) => {
-        if (err) {
-          this.log.error(err);
-          this.prometheus?.recordError("metrics_server");
-          this.emit("fatal-error", {
-            error: err,
-            message: "Failed to start metrics server",
-          });
-        }
-      });
-    }
-    this.fastify = Fastify({
-      logger: false,
-    });
+
     this.on("_unhandled",
       (msg) => {
         if (msg.uuid) {
@@ -260,29 +244,63 @@ export class EcleciaIndexer extends EclesiaEmitter {
             });
         }
       });
-    this.fastify.get("/health",
-      async (_request, reply) => {
-        const code = this.healthCheck.status == "OK"
-          ? 200
-          : 503;
-        reply.code(code).send(this.healthCheck);
+    if (this.config.enablePrometheus) {
+      this.prometheus = new IndexerMetrics();
+      this.prometheusServer = Fastify({
+        logger: false,
       });
-    const healthPort = this.config.healthCheckPort
-      ?? (process.env.HEALTH_CHECK_PORT ? parseInt(process.env.HEALTH_CHECK_PORT, 10) : 8080);
-    this.fastify.listen({
-      port: healthPort,
-      host: "0.0.0.0",
-    },
-    (err) => {
-      if (err) {
-        this.log.error(err);
-        this.prometheus?.recordError("health_check_server");
-        this.emit("fatal-error", {
-          error: err,
-          message: "Failed to start health check server",
+      this.prometheusServer.get("/metrics",
+        async (_req, res) => {
+          res.header("Content-Type", this.prometheus!.registry.contentType);
+          res.send(await this.prometheus!.getMetrics());
+        },
+      );
+
+      const prometheusPort = this.config.prometheusPort
+        ?? (process.env.PROMETHEUS_PORT ? parseInt(process.env.PROMETHEUS_PORT, 10) : DEFAULT_PROMETHEUS_PORT);
+      this.prometheusServer.listen({
+        port: prometheusPort,
+        host: "0.0.0.0",
+      },
+      (err) => {
+        if (err) {
+          this.log.error("Prometheus error: " + err);
+          this.prometheus?.recordError("metrics_server");
+          this.emit("fatal-error", {
+            error: err,
+            message: "Failed to start metrics server",
+          });
+        }
+      });
+    }
+    if (this.config.enableHealthcheck) {
+      this.fastify = Fastify({
+        logger: false,
+      });
+      this.fastify.get("/health",
+        async (_request, reply) => {
+          const code = this.healthCheck.status == "OK"
+            ? 200
+            : 503;
+          reply.code(code).send(this.healthCheck);
         });
-      }
-    });
+      const healthPort = this.config.healthCheckPort
+        ?? (process.env.HEALTH_CHECK_PORT ? parseInt(process.env.HEALTH_CHECK_PORT, 10) : DEFAULT_HEALTH_CHECK_PORT);
+      this.fastify.listen({
+        port: healthPort,
+        host: "0.0.0.0",
+      },
+      (err) => {
+        if (err) {
+          this.log.error("Health check server error: " + err);
+          this.prometheus?.recordError("health_check_server");
+          this.emit("fatal-error", {
+            error: err,
+            message: "Failed to start health check server",
+          });
+        }
+      });
+    }
   }
 
   private setStatus(status: string) {
@@ -325,14 +343,19 @@ export class EcleciaIndexer extends EclesiaEmitter {
       return true;
     }
     catch (error) {
-      this.log.error(error);
+      this.log.error("RPC connection error: " + error);
       this.prometheus?.recordError("connect_rpc_error");
       this.tryToRecover = true;
       return false;
     }
   }
 
+  public stop() {
+    this.started = false;
+  }
+
   public async start() {
+    this.started = true;
     if (this.blockQueue) {
       this.blockQueue.clear();
       this.log.verbose("Starting, clearing block queue");
@@ -402,7 +425,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
       this.setStatus("FAILED");
       throw e;
     }
-
+    this.log.debug("Starting main processing loop");
     this.tryToRecover = false;
     this.fetcher().catch((e) => {
       this.setStatus("FAILED");
@@ -413,7 +436,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
     const hrTime = process.hrtime();
     let ms = hrTime[0] * 1000000 + hrTime[1] / 1000;
-    while (this.blockQueue.size() > 0 && !this.tryToRecover) {
+    while (this.blockQueue.size() > 0 && !this.tryToRecover && this.started && (this.config.endHeight === undefined || this.heightToProcess <= this.config.endHeight)) {
       if (this.config.enablePrometheus) {
         this.prometheus!.updateRetryCount(this.retryCount);
       }
@@ -498,7 +521,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
       }
       catch (e) {
         this.prometheus?.recordError("block_processing_error");
-        this.log.error("" + e);
+        this.log.error("Block processing error: " + e);
         this.setStatus("FAILED");
         try {
           await this.config.endTransaction(false);
@@ -514,19 +537,25 @@ export class EcleciaIndexer extends EclesiaEmitter {
       this.retryCount = 0;
       this.setStatus("OK");
     }
-    if (this.retryCount < 3) {
-      this.log.debug("Indexer retryCount: " + this.retryCount);
-      this.log.info("Indexer is restarting");
-      setTimeout(() => this.start(),
-        this.retryCount * 5000);
+    if (this.config.endHeight !== undefined && this.heightToProcess >= this.config.endHeight!) {
+      this.log.info("Reached configured end height. Stopping indexer.");
+      this.stop();
     }
-    else {
-      this.log.info("Indexer failed too many times. Exiting.");
-      this.emit("fatal-error", {
-        error: new Error("Max retry attempts exceeded"),
-        message: "Indexer failed too many times",
-        retryCount: this.retryCount,
-      });
+    if (this.started) {
+      if (this.retryCount < 3) {
+        this.log.debug("Indexer retryCount: " + this.retryCount);
+        this.log.info("Indexer is restarting");
+        setTimeout(() => this.start(),
+          this.retryCount * 5000);
+      }
+      else {
+        this.log.info("Indexer failed too many times. Exiting.");
+        this.emit("fatal-error", {
+          error: new Error("Max retry attempts exceeded"),
+          message: "Indexer failed too many times",
+          retryCount: this.retryCount,
+        });
+      }
     }
   }
 
@@ -585,9 +614,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
       endTimer = this.prometheus!.timeBlockProcessing();
     }
     const height = block.block.header.height;
+    this.heightToProcess = height;
     this.log.debug("Processing block: %d",
       height);
-
     // Initialize height & timestamp to be used for this block-processing run
     const timestamp = toRfc3339WithNanoseconds(block.block.header.time);
 
@@ -825,7 +854,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }
       }
       catch (e) {
-        this.log.error(e);
+        this.log.error("Fetching error: " + e);
         break;
       }
     }
@@ -866,6 +895,12 @@ export class EcleciaIndexer extends EclesiaEmitter {
   }
 
   private newBlockReceived(height: number): void {
+    if (this.blockTimeout) {
+      clearTimeout(this.blockTimeout);
+    }
+    this.blockTimeout = setTimeout(() => {
+      this.tryToRecover = true;
+    }, 30000);
     this.log.info("Received new block: %d",
       height);
     if (height == this.latestHeight) {
@@ -910,7 +945,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }
       }
       catch (e) {
-        this.log.error("" + e);
+        this.log.error("New Block Received error: " + e);
       }
     }
     else {

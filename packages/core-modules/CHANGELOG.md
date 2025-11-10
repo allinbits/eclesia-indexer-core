@@ -1,5 +1,11 @@
 # @eclesia/core-modules-pg
 
+## 2.11.0
+
+### Minor Changes
+
+- Benchmark improvements and RPC bug
+
 ## 2.10.0
 
 ### Minor Changes

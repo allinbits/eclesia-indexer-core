@@ -33,6 +33,8 @@ interface ProjectConfig {
   logLevel: string
   processGenesis: boolean
   genesisPath: string | null
+  enableHealthcheck: boolean
+  healthCheckPort: number
   enablePrometheus: boolean
   prometheusPort: number
   modules: string[]
@@ -291,6 +293,8 @@ async function copyTemplateFiles(config: ProjectConfig, targetDir: string): Prom
 
 async function processTemplates(config: ProjectConfig, targetDir: string): Promise<void> {
   let polling = false;
+  config.enableHealthcheck = false;
+  config.healthCheckPort = 8888;
   config.enablePrometheus = false;
   config.prometheusPort = 9090;
   const url = new URL(config.rpcEndpoint);
@@ -311,6 +315,8 @@ async function processTemplates(config: ProjectConfig, targetDir: string): Promi
     MINIMAL: config.minimal ? "true" : "false",
     START_HEIGHT: config.startHeight.toString(),
     CHAIN_PREFIX: config.chainPrefix,
+    ENABLE_HEALTHCHECK: config.enableHealthcheck ? "true" : "false",
+    HEALTH_CHECK_PORT: config.healthCheckPort.toString(),
     ENABLE_PROMETHEUS: config.enablePrometheus ? "true" : "false",
     PROMETHEUS_PORT: config.prometheusPort.toString(),
     MODULES_IMPORT: generateModulesImport(config),
