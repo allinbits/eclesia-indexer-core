@@ -17,9 +17,13 @@ export const DEFAULT_START_HEIGHT = 1;
 
 /**
  * Default port for health check HTTP server
- * Changed from 80 to 8080 to avoid requiring root privileges
  */
-export const DEFAULT_HEALTH_CHECK_PORT = 8080;
+export const DEFAULT_HEALTH_CHECK_PORT = 8888;
+
+/**
+ * Default port for Prometheus metrics server
+ */
+export const DEFAULT_PROMETHEUS_PORT = 9090;
 
 /**
  * Default polling interval in milliseconds when using polling mode instead of WebSocket

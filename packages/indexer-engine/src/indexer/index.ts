@@ -41,7 +41,7 @@ import {
 import * as winston from "winston";
 
 import {
-  DEFAULT_BATCH_SIZE, DEFAULT_HEALTH_CHECK_PORT, DEFAULT_POLLING_INTERVAL_MS, DEFAULT_START_HEIGHT,
+  DEFAULT_BATCH_SIZE, DEFAULT_HEALTH_CHECK_PORT, DEFAULT_POLLING_INTERVAL_MS, DEFAULT_PROMETHEUS_PORT, DEFAULT_START_HEIGHT,
   GENESIS_BATCH_SIZE, PAGINATION_LIMITS, PERIODIC_INTERVALS, QUEUE_DEQUEUE_TIMEOUT_MS, RPC_TIMEOUT_MS,
 } from "../constants.js";
 import {
@@ -75,9 +75,10 @@ export const defaultIndexerConfig = {
   pollingInterval: DEFAULT_POLLING_INTERVAL_MS,       // Poll every 5 seconds when polling enabled
   shouldProcessGenesis: () => false,                  // Skip genesis processing by default
   minimal: true,                                      // Use minimal indexing by default
+  enableHealthcheck: true,                            // Enable health check server by default
   healthCheckPort: DEFAULT_HEALTH_CHECK_PORT,         // Default health check port
   enablePrometheus: false,                            // Disable Prometheus metrics server by default
-  prometheusPort: 9090,                               // Default Prometheus metrics server port
+  prometheusPort: DEFAULT_PROMETHEUS_PORT,           // Default Prometheus metrics server port
   init: () => Promise.resolve(),                      // No-op initialization function
   beginTransaction: () => Promise.resolve(),          // No-op transaction begin function
   endTransaction: (_status: boolean) => Promise.resolve(), // No-op transaction end function
@@ -92,7 +93,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
   public config: EcleciaIndexerConfig;
 
   /** Fastify HTTP server for health checks */
-  private fastify: FastifyInstance;
+  private fastify: FastifyInstance | null = null;
 
   /** Prometheus HTTP server instance */
   private prometheusServer: FastifyInstance | null = null;
@@ -162,6 +163,11 @@ export class EcleciaIndexer extends EclesiaEmitter {
       validatePort(config.healthCheckPort, "healthCheckPort");
     }
 
+    // Validate prometheus port if provided
+    if (config.prometheusPort !== undefined) {
+      validatePort(config.prometheusPort, "prometheusPort");
+    }
+
     // Validate start height if provided
     if (config.startHeight !== undefined) {
       validatePositiveInteger(config.startHeight, "startHeight");
@@ -226,6 +232,18 @@ export class EcleciaIndexer extends EclesiaEmitter {
       // Full mode: also store validator information
       this.blockQueue = new CircularBuffer<[BlockResponse, BlockResultsResponse, Uint8Array]>(this.config.batchSize, queueErrorHandler);
     }
+
+    this.on("_unhandled",
+      (msg) => {
+        if (msg.uuid) {
+          this.log.verbose("Unhandled event: " + msg.type);
+          this.emit("uuid",
+            {
+              status: true,
+              uuid: msg.uuid,
+            });
+        }
+      });
     if (this.config.enablePrometheus) {
       this.prometheus = new IndexerMetrics();
       this.prometheusServer = Fastify({
@@ -237,8 +255,11 @@ export class EcleciaIndexer extends EclesiaEmitter {
           res.send(await this.prometheus!.getMetrics());
         },
       );
+
+      const prometheusPort = this.config.prometheusPort
+        ?? (process.env.PROMETHEUS_PORT ? parseInt(process.env.PROMETHEUS_PORT, 10) : DEFAULT_PROMETHEUS_PORT);
       this.prometheusServer.listen({
-        port: this.config.prometheusPort,
+        port: prometheusPort,
         host: "0.0.0.0",
       },
       (err) => {
@@ -252,43 +273,34 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }
       });
     }
-    this.fastify = Fastify({
-      logger: false,
-    });
-    this.on("_unhandled",
-      (msg) => {
-        if (msg.uuid) {
-          this.log.verbose("Unhandled event: " + msg.type);
-          this.emit("uuid",
-            {
-              status: true,
-              uuid: msg.uuid,
-            });
+    if (this.config.enableHealthcheck) {
+      this.fastify = Fastify({
+        logger: false,
+      });
+      this.fastify.get("/health",
+        async (_request, reply) => {
+          const code = this.healthCheck.status == "OK"
+            ? 200
+            : 503;
+          reply.code(code).send(this.healthCheck);
+        });
+      const healthPort = this.config.healthCheckPort
+        ?? (process.env.HEALTH_CHECK_PORT ? parseInt(process.env.HEALTH_CHECK_PORT, 10) : DEFAULT_HEALTH_CHECK_PORT);
+      this.fastify.listen({
+        port: healthPort,
+        host: "0.0.0.0",
+      },
+      (err) => {
+        if (err) {
+          this.log.error("Health check server error: " + err);
+          this.prometheus?.recordError("health_check_server");
+          this.emit("fatal-error", {
+            error: err,
+            message: "Failed to start health check server",
+          });
         }
       });
-    this.fastify.get("/health",
-      async (_request, reply) => {
-        const code = this.healthCheck.status == "OK"
-          ? 200
-          : 503;
-        reply.code(code).send(this.healthCheck);
-      });
-    const healthPort = this.config.healthCheckPort
-      ?? (process.env.HEALTH_CHECK_PORT ? parseInt(process.env.HEALTH_CHECK_PORT, 10) : 8080);
-    this.fastify.listen({
-      port: healthPort,
-      host: "0.0.0.0",
-    },
-    (err) => {
-      if (err) {
-        this.log.error("Health check server error: " + err);
-        this.prometheus?.recordError("health_check_server");
-        this.emit("fatal-error", {
-          error: err,
-          message: "Failed to start health check server",
-        });
-      }
-    });
+    }
   }
 
   private setStatus(status: string) {

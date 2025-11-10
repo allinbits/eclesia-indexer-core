@@ -48,7 +48,8 @@ export function createBenchmarkIndexer(config: BenchmarkConfig): {
     modules: [],
     logLevel: "error",
     minimal: true,
-    healthCheckPort: Math.floor(Math.random() * 10000),
+    enableHealthcheck: false,
+    enablePrometheus: false,
     getNextHeight: async () => {
       counter++;
       return counter;

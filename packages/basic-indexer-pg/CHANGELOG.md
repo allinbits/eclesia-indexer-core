@@ -1,5 +1,11 @@
 # @eclesia/basic-pg-indexer
 
+## 2.11.0
+
+### Minor Changes
+
+- Benchmark improvements and RPC bug
+
 ## 2.10.0
 
 ### Minor Changes

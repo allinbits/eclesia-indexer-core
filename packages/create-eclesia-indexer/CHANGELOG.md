@@ -1,5 +1,11 @@
 # create-eclesia-indexer
 
+## 1.2.0
+
+### Minor Changes
+
+- Benchmark improvements and RPC bug
+
 ## 1.1.0
 
 ### Minor Changes
