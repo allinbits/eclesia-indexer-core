@@ -1,5 +1,11 @@
 # @eclesia/core-modules-pg
 
+## 2.14.1
+
+### Patch Changes
+
+- 2091bb8: ensure we only increment retry counter once
+
 ## 2.14.0
 
 ### Minor Changes
