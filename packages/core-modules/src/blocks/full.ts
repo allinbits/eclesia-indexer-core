@@ -161,7 +161,7 @@ export class FullBlocksModule implements Types.IndexingModule {
     });
 
     // Calculate and store average block times every 100 blocks
-    this.indexer.on("periodic/100", async (event) => {
+    this.indexer.on("periodic/medium", async (event) => {
       if (event.timestamp && event.height) {
         const dt = new Date(event.timestamp);
 

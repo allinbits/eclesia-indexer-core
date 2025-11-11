@@ -112,13 +112,13 @@ export type Events = {
     type: string
     event: unknown
   }
-  "periodic/50": {
+  "periodic/small": {
     value: null
   }
-  "periodic/100": {
+  "periodic/medium": {
     value: null
   }
-  "periodic/1000": {
+  "periodic/large": {
     value: null
   }
 };

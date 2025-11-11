@@ -6,7 +6,7 @@ import {
 import * as fs from "node:fs";
 
 import {
-  BlockResponse, BlockResultsResponse, CometClient, connectComet, Event, toRfc3339WithNanoseconds,
+  BlockResponse, BlockResultsResponse, CometClient, connectComet, Event, StatusResponse, toRfc3339WithNanoseconds,
 } from "@cosmjs/tendermint-rpc";
 import {
   BlockResultsResponse as BlockResultsResponse38, Event as Event38,
@@ -41,12 +41,16 @@ import {
 import * as winston from "winston";
 
 import {
+  CONNECT_TIMEOUT_MS,
   DEFAULT_BATCH_SIZE, DEFAULT_HEALTH_CHECK_PORT, DEFAULT_POLLING_INTERVAL_MS, DEFAULT_PROMETHEUS_PORT, DEFAULT_START_HEIGHT,
   GENESIS_BATCH_SIZE, PAGINATION_LIMITS, PERIODIC_INTERVALS, QUEUE_DEQUEUE_TIMEOUT_MS, RPC_TIMEOUT_MS,
 } from "../constants.js";
 import {
   EclesiaEmitter,
 } from "../emitter/index.js";
+import {
+  RPCError,
+} from "../errors/index.js";
 import {
   IndexerMetrics,
 } from "../metrics/index.js";
@@ -334,10 +338,12 @@ export class EcleciaIndexer extends EclesiaEmitter {
         this.blockClient.disconnect();
         this.log.verbose("Disconnected from RPC");
       }
-      this.client = await connectComet(this.config.rpcUrl);
+      const connectTimeoutPromise = new Promise<ReturnType<typeof connectComet>>((resolve, reject) => {
+        setTimeout(reject, CONNECT_TIMEOUT_MS, []);
+      });
+      this.client = await Promise.race([connectComet(this.config.rpcUrl), connectTimeoutPromise]);
       this.log.info("Connected to RPC for ad hoc queries");
-
-      this.blockClient = await connectComet(this.config.rpcUrl);
+      this.blockClient = await Promise.race([connectComet(this.config.rpcUrl), connectTimeoutPromise]);
       this.log.info("Connected to RPC for block & validator info");
 
       return true;
@@ -350,16 +356,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     }
   }
 
-  public stop() {
-    this.started = false;
-  }
-
-  public async start() {
-    this.started = true;
-    if (this.blockQueue) {
-      this.blockQueue.clear();
-      this.log.verbose("Starting, clearing block queue");
-    }
+  private async initialize() {
     if (!this.initialized) {
       try {
         if (this.config.init) {
@@ -389,11 +386,27 @@ export class EcleciaIndexer extends EclesiaEmitter {
       }
       this.initialized = true;
     }
+  }
+
+  public stop() {
+    this.started = false;
+  }
+
+  private clearBlockQueue() {
+    if (this.blockQueue) {
+      this.blockQueue.clear();
+      this.log.verbose("Starting, clearing block queue");
+    }
+  }
+
+  private async setupBlockListening() {
+    const connected = await this.connect();
+    if (!connected) {
+      this.setStatus("FAILED");
+      throw new RPCError("Failed to connect to RPC");
+    }
+
     try {
-      const connectTimeoutPromise: ReturnType<typeof this.connect> = new Promise((resolve, reject) => {
-        setTimeout(reject, QUEUE_DEQUEUE_TIMEOUT_MS, []);
-      });
-      await Promise.race([this.connect(), connectTimeoutPromise]);
       if (!this.config.usePolling && this.subscription) {
         this.subscription.removeListener(this.blockListener);
         this.subscription = null;
@@ -404,7 +417,12 @@ export class EcleciaIndexer extends EclesiaEmitter {
           ? this.client.subscribeNewBlock()
           : null;
       }
-      const status = await this.client.status();
+      const statusPromise: Promise<StatusResponse> = new Promise((resolve, reject) => {
+        setTimeout(reject,
+          RPC_TIMEOUT_MS,
+          false);
+      });
+      const status = await Promise.race([this.client.status(), statusPromise]);
       this.latestHeight = status.syncInfo.latestBlockHeight;
       this.log.info("Current chain height: " + this.latestHeight);
 
@@ -428,30 +446,36 @@ export class EcleciaIndexer extends EclesiaEmitter {
       this.setStatus("FAILED");
       throw e;
     }
+  }
+
+  public async start() {
+    this.started = true;
+    this.clearBlockQueue();
+    await this.initialize();
+    await this.setupBlockListening();
     this.log.debug("Starting main processing loop");
     this.tryToRecover = false;
     this.fetcher().catch((e) => {
       this.setStatus("FAILED");
-
       this.prometheus?.recordError("rpc");
       throw new Error("Error in fetching service: " + e);
     });
 
-    const hrTime = process.hrtime();
-    let ms = hrTime[0] * 1000000 + hrTime[1] / 1000;
-    while (this.blockQueue.size() > 0 && !this.tryToRecover && this.started && (this.config.endHeight === undefined || this.heightToProcess <= this.config.endHeight)) {
-      if (this.config.enablePrometheus) {
-        this.prometheus!.updateRetryCount(this.retryCount);
-      }
+    while (
+      this.started // break out when stopped
+      && !this.tryToRecover // break out for recoverable errors
+      && (this.config.endHeight === undefined || this.heightToProcess <= this.config.endHeight) // break out if end height configured and reached
+      && this.blockQueue.size() > 0  // break out if no blocks to process
+    ) {
       // await the dequeued promise is essentially awaiting fetched data for that block
       try {
-        if (this.tryToRecover) {
-          throw new Error("Exiting processing loop. Attempting to recover indexer");
-        }
+        this.prometheus?.updateRetryCount(this.retryCount);
         // Index block inside a db transaction to ensure data consistency
         await this.config.beginTransaction();
         this.log.silly("Started db tx");
         let height, timestamp;
+
+        // Main block processing (minimal)
         if (this.isMinimal(this.blockQueue)) {
           const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((resolve, reject) => {
             setTimeout(reject, QUEUE_DEQUEUE_TIMEOUT_MS, []);
@@ -459,14 +483,14 @@ export class EcleciaIndexer extends EclesiaEmitter {
           const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
           this.log.silly("Retrieved block data");
           if (!toProcess || !toProcess[0] || !toProcess[1]) {
-            this.prometheus?.recordError("rpc");
-            throw new Error("Could not fetch block");
+            throw new RPCError("Could not fetch block(minimal)");
           }
           height = toProcess[0].block.header.height;
           timestamp = toRfc3339WithNanoseconds(toProcess[0].block.header.time);
           await this.processBlock(toProcess[0],
             toProcess[1]);
         }
+        // Main block processing (full)
         else {
           const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((resolve, reject) => {
             setTimeout(reject, QUEUE_DEQUEUE_TIMEOUT_MS, []);
@@ -474,8 +498,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
           const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
           this.log.silly("Retrieved block data");
           if (!toProcess || !toProcess[0] || !toProcess[1] || !toProcess[2]) {
-            this.prometheus?.recordError("rpc");
-            throw new Error("Could not fetch block");
+            throw new RPCError("Could not fetch block(full)");
           }
 
           this.log.silly("Decoded block");
@@ -485,15 +508,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
             toProcess[1],
             QueryValidatorsResponse.decode(toProcess[2]).validators);
         }
+
         // Emit events to trigger periodic operations every 50, 100 and 1000 blocks
         if (height % PERIODIC_INTERVALS.LARGE == 0) {
-          const hrTime = process.hrtime();
-          const newms = hrTime[0] * 1000000 + hrTime[1] / 1000;
-          const duration = newms - ms;
-          ms = newms;
-          const rate = 1000000000 / duration;
-          this.log.info("Processing:" + rate.toFixed(2) + "blocks/sec");
-          await this.asyncEmit("periodic/1000",
+          await this.asyncEmit("periodic/large",
             {
               value: null,
               height,
@@ -501,7 +519,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
             });
         }
         if (height % PERIODIC_INTERVALS.MEDIUM == 0) {
-          await this.asyncEmit("periodic/100",
+          await this.asyncEmit("periodic/medium",
             {
               value: null,
               height,
@@ -509,7 +527,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
             });
         }
         if (height % PERIODIC_INTERVALS.SMALL == 0) {
-          await this.asyncEmit("periodic/50",
+          await this.asyncEmit("periodic/small",
             {
               value: null,
               height,
@@ -523,6 +541,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         this.log.silly("Committed db tx");
       }
       catch (e) {
+        // any error here is likely recoverable (e.g. RPC timeout, DB error)
         this.prometheus?.recordError("block");
         this.log.error("Block processing error: " + e);
         this.setStatus("FAILED");
@@ -535,30 +554,41 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }
         this.tryToRecover = true;
         this.retryCount++;
+        // Exit processing loop to attempt recovery
         break;
       }
+      // Reset retry count and status on successful block processing
       this.retryCount = 0;
       this.setStatus("OK");
+    }
+
+    // Normal exit from processing loop
+    if (!this.started) {
+      this.log.info("Indexer manually stopped.");
+      return;
     }
     if (this.config.endHeight !== undefined && this.heightToProcess >= this.config.endHeight!) {
       this.log.info("Reached configured end height. Stopping indexer.");
       this.stop();
+      return;
     }
-    if (this.started) {
-      if (this.retryCount < 3) {
-        this.log.debug("Indexer retryCount: " + this.retryCount);
-        this.log.info("Indexer is restarting");
-        setTimeout(() => this.start(),
-          this.retryCount * 5000);
-      }
-      else {
-        this.log.info("Indexer failed too many times. Exiting.");
-        this.emit("fatal-error", {
-          error: new Error("Max retry attempts exceeded"),
-          message: "Indexer failed too many times",
-          retryCount: this.retryCount,
-        });
-      }
+
+    // Abnormal exit
+    if (this.retryCount < 3) {
+      this.log.debug("Indexer retryCount: " + this.retryCount);
+      this.retryCount++;
+      this.log.info("Indexer is restarting");
+      // Attempt recovery after brief delay
+      setTimeout(() => this.start(),
+        this.retryCount * 5000);
+    }
+    else {
+      this.log.info("Indexer failed too many times. Exiting.");
+      this.emit("fatal-error", {
+        error: new Error("Max retry attempts exceeded"),
+        message: "Indexer failed too many times",
+        retryCount: this.retryCount,
+      });
     }
   }
 
@@ -608,14 +638,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
   };
 
   private async processBlock(block: BlockResponse, block_results: BlockResultsResponse | BlockResultsResponse38, validators?: Validator[]) {
-    let processStart: [number, number] = [0, 0];
-    if (this.config.logLevel == "silly") {
-      processStart = process.hrtime();
-    }
-    let endTimer;
-    if (this.config.enablePrometheus) {
-      endTimer = this.prometheus!.timeBlockProcessing();
-    }
+    const endTimer = this.prometheus?.timeBlockProcessing();
     const height = block.block.header.height;
     this.heightToProcess = height;
     this.log.debug("Processing block: %d",
@@ -773,9 +796,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
       }
     }
     this.log.silly("Modules handled msg events");
-    if (this.config.enablePrometheus) {
-      this.prometheus!.recordTransactions(block.block.txs.length);
-    }
+    this.prometheus?.recordTransactions(block.block.txs.length);
     // Then deal with end_block events
     await this.asyncEmit("end_block",
       {
@@ -784,36 +805,28 @@ export class EcleciaIndexer extends EclesiaEmitter {
         timestamp,
       });
     this.log.silly("Modules handled end_block events");
-    if (this.config.logLevel == "silly") {
-      const processEnd = process.hrtime(processStart);
-      const processTime = processEnd[0] * 1000 + processEnd[1] / 1000000;
-      this.log.silly("Processed block %d in %d ms",
-        height,
-        processTime.toFixed(2));
-    }
 
-    if (this.config.enablePrometheus) {
-      endTimer!();
-    }
-    if (this.config.enablePrometheus) {
-      this.prometheus!.updateBlockMetrics(height, this.latestHeight, this.blockQueue.size());
-    }
+    endTimer?.();
+    this.prometheus?.updateBlockMetrics(height, this.latestHeight, this.blockQueue.size());
   }
 
   private async fetcher() {
     for (let i = this.heightToProcess; i <= this.latestHeight; i++) {
-      this.log.debug("Fetching: " + i);
+      // If some other async process triggers recovery, exit the fetching loop
       if (this.tryToRecover) {
         this.log.verbose("Exiting fetcher loop. Attempting to recover indexer");
         break;
       }
+      this.log.debug("Fetching: " + i);
       try {
+        // Main fetching logic for minimal indexer
         if (this.isMinimal(this.blockQueue)) {
           const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse]> = new Promise((resolve, reject) => {
             setTimeout(reject,
               RPC_TIMEOUT_MS,
               false);
           });
+          // We do not await here so that multiple fetches can be in-flight
           const toIndex = Promise.race([Promise.all([this.blockClient.block(i) as Promise<BlockResponse>, this.blockClient.blockResults(i) as Promise<BlockResultsResponse>]), timeoutPromise]).catch((e) => {
             this.log.error("Error fetching block: " + i + " : " + e);
             this.prometheus?.recordError("rpc");
@@ -823,6 +836,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
           this.blockQueue.enqueue(toIndex);
         }
         else {
+          // Main fetching logic for minimal indexer
           const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse, Uint8Array]> = new Promise((resolve, reject) => {
             setTimeout(reject,
               RPC_TIMEOUT_MS,
@@ -834,6 +848,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
             },
           });
           const vals = QueryValidatorsRequest.encode(q).finish();
+          // We do not await here so that multiple fetches can be in-flight
           const toIndex = Promise.race([
             Promise.all([
               this.blockClient.block(i) as Promise<BlockResponse>,
@@ -851,17 +866,18 @@ export class EcleciaIndexer extends EclesiaEmitter {
           }) as Promise<[BlockResponse, BlockResultsResponse, Uint8Array]>;
           this.blockQueue.enqueue(toIndex);
         }
-        await this.blockQueue.continue();
-        if (this.tryToRecover) {
-          this.retryCount++;
-          throw new Error("RPC not responding");
-        }
       }
       catch (e) {
         this.log.error("Fetching error: " + e);
         break;
       }
+      await this.blockQueue.continue();
+      if (this.tryToRecover) {
+        this.log.verbose("Exiting fetcher loop. Attempting to recover indexer");
+        break;
+      }
     }
+    // If we exit the fetching loop without errors, we are synced
     if (!this.tryToRecover) {
       this.blockQueue.setSynced();
       this.log.info("Synced to latest height");
