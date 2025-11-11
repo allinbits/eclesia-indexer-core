@@ -1,5 +1,11 @@
 # @eclesia/basic-pg-indexer
 
+## 2.14.0
+
+### Minor Changes
+
+- b7ed332: Refactor indexer flow
+
 ## 2.13.0
 
 ### Minor Changes
