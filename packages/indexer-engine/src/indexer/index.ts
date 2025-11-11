@@ -452,14 +452,19 @@ export class EcleciaIndexer extends EclesiaEmitter {
     this.started = true;
     this.clearBlockQueue();
     await this.initialize();
-    await this.setupBlockListening();
-    this.log.debug("Starting main processing loop");
-    this.tryToRecover = false;
-    this.fetcher().catch((e) => {
-      this.setStatus("FAILED");
-      this.prometheus?.recordError("rpc");
-      throw new Error("Error in fetching service: " + e);
-    });
+    try {
+      await this.setupBlockListening();
+      this.log.debug("Starting main processing loop");
+      this.tryToRecover = false;
+      this.fetcher().catch((e) => {
+        this.setStatus("FAILED");
+        this.prometheus?.recordError("rpc");
+        throw new Error("Error in fetching service: " + e);
+      });
+    }
+    catch (_e) {
+      // Continue and attempt to recover
+    }
 
     while (
       this.started // break out when stopped
