@@ -390,7 +390,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
       this.initialized = true;
     }
     try {
-      await this.connect();
+      const connectTimeoutPromise: ReturnType<typeof this.connect> = new Promise((resolve, reject) => {
+        setTimeout(reject, QUEUE_DEQUEUE_TIMEOUT_MS, []);
+      });
+      await Promise.race([this.connect(), connectTimeoutPromise]);
       if (!this.config.usePolling && this.subscription) {
         this.subscription.removeListener(this.blockListener);
         this.subscription = null;
@@ -813,6 +816,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
           });
           const toIndex = Promise.race([Promise.all([this.blockClient.block(i) as Promise<BlockResponse>, this.blockClient.blockResults(i) as Promise<BlockResultsResponse>]), timeoutPromise]).catch((e) => {
             this.log.error("Error fetching block: " + i + " : " + e);
+            this.prometheus?.recordError("rpc");
             this.tryToRecover = true;
             return Promise.resolve([]);
           }) as Promise<[BlockResponse, BlockResultsResponse]>;

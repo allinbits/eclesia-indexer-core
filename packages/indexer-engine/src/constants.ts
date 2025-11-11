@@ -31,6 +31,12 @@ export const DEFAULT_PROMETHEUS_PORT = 9090;
 export const DEFAULT_POLLING_INTERVAL_MS = 5000;
 
 /**
+ * Timeout for connecting to the Tendermint RPC in milliseconds
+ * If connection is not established within this time, it will be aborted
+  */
+export const CONNECT_TIMEOUT_MS = 10000;
+
+/**
  * Timeout for RPC calls in milliseconds
  * If a call takes longer than this, it will be rejected
  */
