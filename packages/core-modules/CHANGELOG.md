@@ -1,5 +1,11 @@
 # @eclesia/core-modules-pg
 
+## 2.13.0
+
+### Minor Changes
+
+- 9d237a5: Add RPC connect timeout
+
 ## 2.12.1
 
 ### Patch Changes

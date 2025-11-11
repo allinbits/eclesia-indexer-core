@@ -1,5 +1,11 @@
 # @eclesia/indexer-engine
 
+## 2.13.0
+
+### Minor Changes
+
+- 9d237a5: Add RPC connect timeout
+
 ## 2.12.0
 
 ### Minor Changes
