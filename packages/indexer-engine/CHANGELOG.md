@@ -1,5 +1,11 @@
 # @eclesia/indexer-engine
 
+## 2.14.1
+
+### Patch Changes
+
+- 68a9454: catch block listening setup error
+
 ## 2.14.0
 
 ### Minor Changes
