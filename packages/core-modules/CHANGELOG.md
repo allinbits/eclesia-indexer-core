@@ -1,5 +1,11 @@
 # @eclesia/core-modules-pg
 
+## 2.12.1
+
+### Patch Changes
+
+- Fix saveTx
+
 ## 2.12.0
 
 ### Minor Changes

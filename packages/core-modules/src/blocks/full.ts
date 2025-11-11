@@ -324,32 +324,32 @@ export class FullBlocksModule implements Types.IndexingModule {
         txHash.toUpperCase(),
         height,
         txdata.code == 0, // Transaction success is determined by code == 0
+        JSONStringify(
+          tx.body?.messages.map((x) => {
+            // Attempt to decode message using registered protobuf types
+            const msgtype = registryMap.get(x.typeUrl);
+            if (msgtype) {
+              const msg = msgtype?.decode(x.value);
+              msg["@type"] = x.typeUrl; // Add type URL for message identification
 
-        tx.body?.messages.map((x) => {
-          // Attempt to decode message using registered protobuf types
-          const msgtype = registryMap.get(x.typeUrl);
-          if (msgtype) {
-            const msg = msgtype?.decode(x.value);
-            msg["@type"] = x.typeUrl; // Add type URL for message identification
-
-            return msg;
-          }
-          else {
-            // Return raw message if no decoder available
-            return x;
-          }
-        }),
-
+              return msg;
+            }
+            else {
+              // Return raw message if no decoder available
+              return x;
+            }
+          }),
+        ),
         tx.body?.memo,
         tx.signatures,
-        Utils.toPlainObject(tx.authInfo?.signerInfos),
-        Utils.toPlainObject(tx.authInfo?.fee),
+        JSON.stringify(Utils.toPlainObject(tx.authInfo?.signerInfos)),
+        JSON.stringify(Utils.toPlainObject(tx.authInfo?.fee)),
         txdata.gasWanted,
         txdata.gasUsed,
         // Remove null bytes from log string to prevent database issues
         // eslint-disable-next-line no-control-regex
         txdata.log?.replace(/\u0000/g, ""),
-        Utils.toPlainObject(txdata.events),
+        JSON.stringify(Utils.toPlainObject(txdata.events)),
       ],
     });
     endTimer?.();
