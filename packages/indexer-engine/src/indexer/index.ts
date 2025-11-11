@@ -558,7 +558,6 @@ export class EcleciaIndexer extends EclesiaEmitter {
           this.log.error("Error ending transaction. Must be a DB error: " + dbe);
         }
         this.tryToRecover = true;
-        this.retryCount++;
         // Exit processing loop to attempt recovery
         break;
       }
@@ -914,7 +913,6 @@ export class EcleciaIndexer extends EclesiaEmitter {
     catch (_e) {
       this.tryToRecover = true;
       this.setStatus("FAILED");
-      this.retryCount++;
       throw new Error("RPC not responding. Query at: " + path);
     }
   }
@@ -938,7 +936,6 @@ export class EcleciaIndexer extends EclesiaEmitter {
         this.prometheus?.recordError("block");
         this.log.error("Block queue is full. Cannot add new block");
         this.tryToRecover = true;
-        this.retryCount++;
         return;
       }
       try {
@@ -994,7 +991,6 @@ export class EcleciaIndexer extends EclesiaEmitter {
     catch (e) {
       this.log.error("Error polling for new block: " + e);
       this.tryToRecover = true;
-      this.retryCount++;
     }
   }
 
