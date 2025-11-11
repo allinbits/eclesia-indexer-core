@@ -1,5 +1,11 @@
 # @eclesia/core-modules-pg
 
+## 2.12.0
+
+### Minor Changes
+
+- Fix metrics and increase save TX performance
+
 ## 2.11.0
 
 ### Minor Changes

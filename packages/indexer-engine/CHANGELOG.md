@@ -1,5 +1,11 @@
 # @eclesia/indexer-engine
 
+## 2.12.0
+
+### Minor Changes
+
+- Fix metrics and increase save TX performance
+
 ## 2.11.1
 
 ### Patch Changes

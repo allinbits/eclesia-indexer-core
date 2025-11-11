@@ -220,7 +220,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     // Initialize block queue based on minimal or full indexing mode
     // Pass error handler that uses the logger
     const queueErrorHandler = (e: unknown) => {
-      this.prometheus?.recordError("block_queue");
+      this.prometheus?.recordError("rpc");
       this.log.error("Error enqueueing block data: " + e);
     };
 
@@ -344,7 +344,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     }
     catch (error) {
       this.log.error("RPC connection error: " + error);
-      this.prometheus?.recordError("connect_rpc_error");
+      this.prometheus?.recordError("rpc");
       this.tryToRecover = true;
       return false;
     }
@@ -414,14 +414,14 @@ export class EcleciaIndexer extends EclesiaEmitter {
           this.subscription.addListener(this.blockListener);
         }
         else {
-          this.prometheus?.recordError("subscription_error");
+          this.prometheus?.recordError("rpc");
           throw new Error("Could not subscribe to new blocks");
         }
       }
     }
     catch (e) {
       this.log.error("Failed to set up block listening: " + e);
-      this.prometheus?.recordError("block_listening_error");
+      this.prometheus?.recordError("rpc");
       this.setStatus("FAILED");
       throw e;
     }
@@ -430,7 +430,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     this.fetcher().catch((e) => {
       this.setStatus("FAILED");
 
-      this.prometheus?.recordError("fetching_error");
+      this.prometheus?.recordError("rpc");
       throw new Error("Error in fetching service: " + e);
     });
 
@@ -456,7 +456,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
           const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
           this.log.silly("Retrieved block data");
           if (!toProcess || !toProcess[0] || !toProcess[1]) {
-            this.prometheus?.recordError("rpc_error");
+            this.prometheus?.recordError("rpc");
             throw new Error("Could not fetch block");
           }
           height = toProcess[0].block.header.height;
@@ -471,7 +471,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
           const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
           this.log.silly("Retrieved block data");
           if (!toProcess || !toProcess[0] || !toProcess[1] || !toProcess[2]) {
-            this.prometheus?.recordError("rpc_error");
+            this.prometheus?.recordError("rpc");
             throw new Error("Could not fetch block");
           }
 
@@ -520,7 +520,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         this.log.silly("Committed db tx");
       }
       catch (e) {
-        this.prometheus?.recordError("block_processing_error");
+        this.prometheus?.recordError("block");
         this.log.error("Block processing error: " + e);
         this.setStatus("FAILED");
         try {
@@ -882,7 +882,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
       else {
         this.tryToRecover = true;
         this.setStatus("FAILED");
-        this.prometheus?.recordError("abci_query_error");
+        this.prometheus?.recordError("rpc");
         throw new Error("RPC not responding. Query at: " + path);
       }
     }
@@ -910,7 +910,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     if (this.blockQueue.synced && !this.tryToRecover) {
       this.latestHeight = height;
       if (this.blockQueue.size() + 1 == this.config.batchSize) {
-        this.prometheus?.recordError("block_queue_full");
+        this.prometheus?.recordError("block");
         this.log.error("Block queue is full. Cannot add new block");
         this.tryToRecover = true;
         this.retryCount++;
@@ -1131,7 +1131,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         await this.config.endTransaction(false);
       }
       catch (dbe) {
-        this.prometheus?.recordError("database_error");
+        this.prometheus?.recordError("database");
         this.log.error("Error ending transaction. Must be a DB error: " + dbe);
       }
       this.log.error("Failed to import genesis");

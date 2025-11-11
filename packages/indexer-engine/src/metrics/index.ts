@@ -33,6 +33,9 @@ export class IndexerMetrics {
   /** Counter for RPC errors */
   public readonly rpcErrors: Counter;
 
+  /** Counter for block processing errors */
+  public readonly processingErrors: Counter;
+
   /** Counter for database errors */
   public readonly databaseErrors: Counter;
 
@@ -104,6 +107,12 @@ export class IndexerMetrics {
       registers: [this.registry],
     });
 
+    this.processingErrors = new Counter({
+      name: "indexer_processing_errors_total",
+      help: "Total number of Block Processing errors",
+      registers: [this.registry],
+    });
+
     this.databaseErrors = new Counter({
       name: "indexer_database_errors_total",
       help: "Total number of database errors",
@@ -114,14 +123,14 @@ export class IndexerMetrics {
     this.blockProcessingDuration = new Histogram({
       name: "indexer_block_processing_duration_seconds",
       help: "Time spent processing a single block",
-      buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5],
+      buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10],
       registers: [this.registry],
     });
 
     this.rpcCallDuration = new Histogram({
       name: "indexer_rpc_call_duration_seconds",
       help: "Duration of RPC calls",
-      buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10],
+      buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 100],
       labelNames: ["method"],
       registers: [this.registry],
     });
@@ -129,7 +138,7 @@ export class IndexerMetrics {
     this.databaseQueryDuration = new Histogram({
       name: "indexer_database_query_duration_seconds",
       help: "Duration of database queries",
-      buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1],
+      buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5],
       labelNames: ["query_type"],
       registers: [this.registry],
     });
@@ -176,6 +185,9 @@ export class IndexerMetrics {
     }
     else if (type === "database") {
       this.databaseErrors.inc();
+    }
+    else if (type === "block") {
+      this.processingErrors.inc();
     }
   }
 

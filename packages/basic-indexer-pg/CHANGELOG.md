@@ -1,5 +1,11 @@
 # @eclesia/basic-pg-indexer
 
+## 2.12.0
+
+### Minor Changes
+
+- Fix metrics and increase save TX performance
+
 ## 2.11.2
 
 ### Patch Changes
