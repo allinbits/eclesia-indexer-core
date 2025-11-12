@@ -1,6 +1,6 @@
 {
   "name": "@eclesia/core-modules-pg",
-  "version": "2.14.2",
+  "version": "2.14.3",
   "description": "Eclesia postgres indexer core modules",
   "type": "module",
   "scripts": {

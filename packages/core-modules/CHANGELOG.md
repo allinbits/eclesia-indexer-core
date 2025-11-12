@@ -1,5 +1,11 @@
 # @eclesia/core-modules-pg
 
+## 2.14.3
+
+### Patch Changes
+
+- 95bdc3a: Improve insert performance
+
 ## 2.14.2
 
 ### Patch Changes

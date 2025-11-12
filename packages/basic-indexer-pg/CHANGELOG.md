@@ -1,5 +1,11 @@
 # @eclesia/basic-pg-indexer
 
+## 2.14.1
+
+### Patch Changes
+
+- 95bdc3a: Improve insert performance
+
 ## 2.14.0
 
 ### Minor Changes
