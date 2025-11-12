@@ -1,5 +1,11 @@
 # @eclesia/core-modules-pg
 
+## 2.14.2
+
+### Patch Changes
+
+- 49c4028: Better stringify performance
+
 ## 2.14.1
 
 ### Patch Changes
