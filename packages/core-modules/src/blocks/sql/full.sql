@@ -41,9 +41,12 @@ CREATE TABLE transactions
     CONSTRAINT unique_tx UNIQUE (hash, height)
 );
 -- Indexes for efficient transaction queries
-CREATE INDEX transaction_hash_index ON transactions (hash);
 CREATE INDEX transaction_height_index ON transactions (height  DESC NULLS LAST);
 
+ALTER TABLE transactions ALTER COLUMN messages SET STORAGE EXTERNAL;
+ALTER TABLE transactions ALTER COLUMN logs SET STORAGE EXTERNAL;
+ALTER TABLE transactions ALTER COLUMN signer_infos SET STORAGE EXTERNAL;
+ALTER TABLE transactions ALTER COLUMN fee SET STORAGE EXTERNAL;
 
 -- Single-row tables for storing network performance metrics
 -- These use a boolean primary key trick to ensure only one row exists

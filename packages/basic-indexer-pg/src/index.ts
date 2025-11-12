@@ -294,12 +294,14 @@ export class PgIndexer {
    */
   public getInstance(): Client {
     if (this.config.logLevel !== "silly") {
+      this.db.query("SET synchronous_commit = OFF;");
       return this.db;
     }
     else {
       // Create a proxy client that logs query performance
       // eslint-disable-next-line @typescript-eslint/no-this-alias
       const self = this;
+      self.db.query("SET synchronous_commit = OFF;");
       return {
         ...self.db,
         query: async (...args: Parameters<Client["query"]>): Promise<ReturnType<Client["query"]>> => {
