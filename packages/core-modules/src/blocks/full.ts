@@ -28,11 +28,9 @@ import {
 import {
   Tx,
 } from "cosmjs-types/cosmos/tx/v1beta1/tx.js";
-import {
-  JSONStringify,
-} from "json-with-bigint";
 
 import {
+  BigintStringify,
   calculateGas,
 } from "./helpers.js";
 
@@ -136,7 +134,7 @@ export class FullBlocksModule implements Types.IndexingModule {
           ),
           block.block.header.time,
           // Store validator signatures in structured JSON format
-          JSONStringify(block.block.lastCommit?.signatures.map((x) => {
+          BigintStringify(block.block.lastCommit?.signatures.map((x) => {
             return {
               validator: Utils.chainAddressfromKeyhash(
                 this.chainPrefix + "valcons", Buffer.from(x.validatorAddress ?? new Uint8Array()).toString("hex"),
@@ -157,11 +155,11 @@ export class FullBlocksModule implements Types.IndexingModule {
           await this.saveTransaction(txHash, event.height, tx, block_results.results[i], registryMap);
         }
       }
-      this.indexer.log.silly("Value passed to blocks indexing module: " + JSONStringify(event.value));
+      this.indexer.log.silly("Value passed to blocks indexing module: " + BigintStringify(event.value));
     });
 
     // Calculate and store average block times every 100 blocks
-    this.indexer.on("periodic/100", async (event) => {
+    this.indexer.on("periodic/medium", async (event) => {
       if (event.timestamp && event.height) {
         const dt = new Date(event.timestamp);
 
@@ -324,7 +322,7 @@ export class FullBlocksModule implements Types.IndexingModule {
         txHash.toUpperCase(),
         height,
         txdata.code == 0, // Transaction success is determined by code == 0
-        JSONStringify(
+        BigintStringify(
           tx.body?.messages.map((x) => {
             // Attempt to decode message using registered protobuf types
             const msgtype = registryMap.get(x.typeUrl);
@@ -342,14 +340,14 @@ export class FullBlocksModule implements Types.IndexingModule {
         ),
         tx.body?.memo,
         tx.signatures,
-        JSON.stringify(Utils.toPlainObject(tx.authInfo?.signerInfos)),
-        JSON.stringify(Utils.toPlainObject(tx.authInfo?.fee)),
+        BigintStringify(tx.authInfo?.signerInfos),
+        BigintStringify(tx.authInfo?.fee),
         txdata.gasWanted,
         txdata.gasUsed,
         // Remove null bytes from log string to prevent database issues
         // eslint-disable-next-line no-control-regex
         txdata.log?.replace(/\u0000/g, ""),
-        JSON.stringify(Utils.toPlainObject(txdata.events)),
+        BigintStringify(txdata.events),
       ],
     });
     endTimer?.();

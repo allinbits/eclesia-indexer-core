@@ -70,7 +70,7 @@ export function createBenchmarkIndexer(config: BenchmarkConfig): {
     (indexer as any).client = mockRpc;
     (indexer as any).blockClient = mockRpc;
     (indexer as any).initialized = true;
-    (indexer as any).connect = () => Promise.resolve();
+    (indexer as any).connect = () => Promise.resolve(true);
   }
 
   return {

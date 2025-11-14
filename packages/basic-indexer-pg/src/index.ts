@@ -33,19 +33,8 @@ function validatePostgresConnectionString(connectionString: string): void {
 }
 
 /** Configuration options for the PostgreSQL indexer */
-export type PgIndexerConfig = {
-  startHeight: number                        // Block height to start indexing from
-  batchSize: number                          // Number of blocks to keep pre-fetched when syncing
-  modules: string[]                          // List of module names to enable
-  rpcUrl: string                             // Tendermint RPC endpoint URL
-  logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly" // Logging verbosity
-  usePolling: boolean                        // Whether to use polling vs WebSocket subscription
+export type PgIndexerConfig = Omit<Types.EcleciaIndexerConfig, "init" | "getNextHeight" | "beginTransaction" | "endTransaction" | "shouldProcessGenesis"> & {
   processGenesis?: boolean                   // Whether to process genesis state
-  pollingInterval: number                    // Interval between polls (ms) when using polling
-  minimal: boolean                           // Whether to use minimal indexing (blocks only)
-  genesisPath?: string                       // Path to genesis file for processing
-  enablePrometheus?: boolean                  // Enable Prometheus metrics server
-  prometheusPort?: number                     // Prometheus metrics server port
   dbConnectionString: string                 // PostgreSQL connection string
 };
 
@@ -189,7 +178,7 @@ export class PgIndexer {
       }
       else {
         // No blocks found, start from configured height
-        return this.config.startHeight;
+        return this.config.startHeight!;
       }
     }
     catch (e) {
@@ -305,12 +294,14 @@ export class PgIndexer {
    */
   public getInstance(): Client {
     if (this.config.logLevel !== "silly") {
+      this.db.query("SET synchronous_commit = OFF;");
       return this.db;
     }
     else {
       // Create a proxy client that logs query performance
       // eslint-disable-next-line @typescript-eslint/no-this-alias
       const self = this;
+      self.db.query("SET synchronous_commit = OFF;");
       return {
         ...self.db,
         query: async (...args: Parameters<Client["query"]>): Promise<ReturnType<Client["query"]>> => {

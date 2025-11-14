@@ -1,5 +1,41 @@
 # @eclesia/indexer-engine
 
+## 2.14.2
+
+### Patch Changes
+
+- 2091bb8: ensure we only increment retry counter once
+
+## 2.14.1
+
+### Patch Changes
+
+- 68a9454: catch block listening setup error
+
+## 2.14.0
+
+### Minor Changes
+
+- b7ed332: Refactor indexer flow
+
+## 2.13.0
+
+### Minor Changes
+
+- 9d237a5: Add RPC connect timeout
+
+## 2.12.0
+
+### Minor Changes
+
+- Fix metrics and increase save TX performance
+
+## 2.11.1
+
+### Patch Changes
+
+- Fix type export
+
 ## 2.11.0
 
 ### Minor Changes
