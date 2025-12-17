@@ -567,7 +567,7 @@ export class StakingModule implements Types.IndexingModule {
       }
     });
 
-    this.indexer.on("periodic/1000", async (event) => {
+    this.indexer.on("periodic/large", async (event) => {
       const q = QueryPoolRequest.fromPartial({
       });
       const poolreq = QueryPoolRequest.encode(q).finish();

@@ -2,6 +2,13 @@
 
 A powerful, modular framework for indexing Cosmos SDK blockchain data. Eclesia Indexer provides the tools to efficiently collect, process, and store blockchain data from any Cosmos-based chain.
 
+## Key Features
+
+- Modular Architecture
+- Event-Driven Block Processing
+- PostgreSQL-Optimized Storage Layer
+- Production-Ready Developer CLI
+
 ## 🚀 Quick Start
 
 ```bash
@@ -290,10 +297,14 @@ docker-compose up -d      # Start PostgreSQL, indexer and Hasura instance
 
 ## 📈 Performance
 
-- **Batch Processing**: Prefetch multiple blocks in parallel
-- **WebSocket Support**: Real-time block streaming
-- **Transaction Management**: Atomic database operations
+- **Batch Processing**: Prefetch multiple blocks in parallel for optimal throughput
+- **WebSocket Support**: Real-time block streaming with automatic reconnection
+- **Transaction Management**: Atomic database operations with automatic rollback
 - **Memory Efficient**: Streaming JSON parsing for large datasets
+- **Optimized Operations**: High-performance insert and serialization operations
+- **Connection Management**: Automatic database connection recycling (every 1500 transactions)
+- **Error Recovery**: Automatic retry logic with exponential backoff
+- **LRU Caching**: Memory-efficient caching for validator data
 
 ### Benchmarking
 
@@ -307,7 +318,9 @@ pnpm run bench
 pnpm run bench engine-indexing
 ```
 
-The benchmarking framework provides mock RPC and database clients for isolated performance testing. See [Benchmarking Guide](benchmarks/BENCHMARKING_GUIDE.md) for details.
+The benchmarking framework provides mock RPC and database clients for isolated performance testing.
+
+For production performance tuning, see [PERFORMANCE.md](PERFORMANCE.md).
 
 ## 🤝 Contributing
 
@@ -334,7 +347,11 @@ GNO NETWORK GENERAL PUBLIC LICENSE
 ## 🆘 Support
 
 - **Issues**: Report bugs and feature requests
-- **Extended Documentation**: See [Tutorial](TUTORIAL.md) and [Advanced Tutorial](ADVANCED_TUTORIAL.md)
+- **Documentation**:
+  - [Tutorial](TUTORIAL.md) - Getting started guide
+  - [Advanced Tutorial](ADVANCED_TUTORIAL.md) - Custom module development
+  - [Performance Guide](PERFORMANCE.md) - Production optimization
+  - [Troubleshooting](TROUBLESHOOTING.md) - Common issues and solutions
 - **Examples**: See [AtomOne Indexer](https://github.com/allinbits/atomone-indexer)
 
 ---

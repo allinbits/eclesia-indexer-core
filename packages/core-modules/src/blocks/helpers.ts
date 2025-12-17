@@ -15,6 +15,13 @@ const calculateGas = (block: BlockResultsResponse | BlockResultsResponse38): big
   }, 0n);
 };
 
+const BigintStringify = (obj: unknown): string => {
+  return JSON.stringify(obj,
+    (key, value) => (typeof value === "bigint" ? value.toString() : value), // return everything else unchanged
+  );
+};
+
 export {
+  BigintStringify,
   calculateGas,
 };

@@ -359,14 +359,34 @@ This tutorial demonstrated:
 - **Type safety** - Augmenting TypeScript definitions for custom events
 - **Module integration** - Wiring custom modules into the indexer pipeline
 
+## Performance Considerations
+
+When building custom modules, keep these optimizations in mind:
+
+- **Database indexes** - Create indexes on frequently queried columns
+- **Batch operations** - Use bulk inserts when processing multiple records
+- **Connection management** - The indexer automatically recycles database connections every 1500 transactions
+- **Error handling** - Implement proper error recovery to leverage automatic retry mechanisms
+- **Memory efficiency** - Consider using LRU caches for frequently accessed data
+
+For detailed performance guidance, see [PERFORMANCE.md](PERFORMANCE.md).
+
 ## Next Steps
 
 Now that you've built a custom module, you can:
 
-- Add more sophisticated statistics and aggregations
-- Create additional custom modules for other message types
-- Implement cross-module data dependencies
-- Build GraphQL queries and subscriptions in Hasura
-- Deploy your indexer to production
+- **Add more sophisticated statistics and aggregations** to your module
+- **Create additional custom modules** for other message types
+- **Implement cross-module data dependencies** using the `depends` and `provides` arrays
+- **Build GraphQL queries and subscriptions** in Hasura for your indexed data
+- **Optimize performance** using the techniques in [PERFORMANCE.md](PERFORMANCE.md)
+- **Deploy to production** following common security principles
+
+## Additional Resources
+
+- **[Tutorial](TUTORIAL.md)** - Basic indexer setup guide
+- **[Performance Guide](PERFORMANCE.md)** - Optimize your indexer for production
+- **[Troubleshooting](TROUBLESHOOTING.md)** - Common issues and solutions
+- **[README](README.md)** - Full framework documentation
 
 Happy indexing!
