@@ -115,13 +115,24 @@ After block 1, the indexer will process blocks sequentially at normal speed.
 > Publicly available remote nodes may be slow due to network latency and shared resources.
 >
 > **Recommended Setup**: For optimal syncing performance, run the indexer alongside a local node. Network latencies add up quickly during initial sync. Once caught up to the latest block, network requirements become less critical.
+>
+> **Performance Optimizations**: The indexer includes several performance optimizations for insert operations, JSON stringification, and automatic connection management. For detailed performance tuning, see [PERFORMANCE.md](PERFORMANCE.md).
 
 ## Next Steps
 
 Your indexer is now running! You can:
 
-- Access the Hasura GraphQL console to query indexed data
-- Monitor indexing progress through the logs
-- Customize modules and indexing logic as needed
+- **Access the Hasura GraphQL console** to query indexed data
+- **Monitor indexing progress** through the logs and health check endpoint (http://localhost:8080/health)
+- **View metrics** if Prometheus is enabled (http://localhost:9090/metrics)
+- **Customize modules** and indexing logic as needed
+- **Performance tuning** - See [PERFORMANCE.md](PERFORMANCE.md) for optimization guidance
+- **Troubleshooting** - Refer to [TROUBLESHOOTING.md](TROUBLESHOOTING.md) if you encounter issues
+
+## Additional Resources
+
+- **[Advanced Tutorial](ADVANCED_TUTORIAL.md)** - Learn to build custom indexing modules
+- **[Performance Guide](PERFORMANCE.md)** - Optimize your indexer for production
+- **[Troubleshooting](TROUBLESHOOTING.md)** - Common issues and solutions
 
 Happy indexing!
