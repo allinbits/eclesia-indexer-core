@@ -89,17 +89,21 @@ Error: sorry, too many clients already
 **Symptoms:**
 - Frequent timeout errors
 - Slow indexing speed
+- Connection timeout errors
 
 **Causes:**
 - RPC node overloaded
 - Network latency
 - Large block responses
+- Connection establishment delays
 
 **Solutions:**
-1. Increase RPC_TIMEOUT_MS constant (default: 20000ms)
-2. Use local RPC node if possible
-3. Reduce batchSize in configuration
-4. Check RPC node performance and resources
+1. Increase RPC_TIMEOUT_MS constant (default: 20000ms) in `@eclesia/indexer-engine/src/constants.ts`
+2. Adjust CONNECT_TIMEOUT_MS if connection establishment is slow (default: 10000ms)
+3. Use local RPC node if possible to reduce network latency
+4. Reduce batchSize in configuration to lower concurrent load
+5. Check RPC node performance and resources
+6. The indexer automatically retries failed RPC calls with exponential backoff
 
 ### Genesis Processing Issues
 
@@ -156,18 +160,23 @@ Error: Genesis path not set
 **Symptoms:**
 - Height not increasing
 - No new blocks indexed
+- Block listener setup failures
 
 **Causes:**
 - Queue full/blocked
 - Transaction not committed
 - Error in block processing
+- Block listener failed to initialize
+- RPC connection issues
 
 **Solutions:**
-1. Check logs for errors
-2. Monitor queue depth metric
-3. Verify database transactions are committing
-4. Check RPC connectivity
-5. Look for module-specific errors
+1. Check logs for errors (especially block listener setup errors)
+2. Monitor queue depth metric via Prometheus endpoint
+3. Verify database transactions are committing successfully
+4. Check RPC connectivity and CONNECT_TIMEOUT_MS setting
+5. Look for module-specific errors in logs
+6. The indexer now automatically recovers from block listener setup failures
+7. Verify database connection hasn't been recycled mid-transaction (check DB_CLIENT_RECYCLE_COUNT)
 
 #### Blocks behind increasing
 
@@ -240,10 +249,7 @@ curl http://localhost:8080/health
 ```
 
 Response includes:
-- Status (OK, DEGRADED, ERROR)
-- Current height
-- Latest height
-- Uptime
+- Status (OK, FAILED)
 
 ### Monitor Metrics
 
@@ -406,9 +412,17 @@ If you encounter issues not covered here:
 ### Automatic Recovery
 
 The indexer includes automatic recovery for:
-- RPC connection failures (3 retries with exponential backoff)
-- Transient database errors (transaction rollback)
-- WebSocket disconnections (automatic reconnection)
+- **RPC connection failures** - Automatic retry with exponential backoff
+- **Transient database errors** - Automatic transaction rollback and retry
+- **WebSocket disconnections** - Automatic reconnection with connection management
+- **Block listener setup failures** - Automatic recovery and retry mechanisms
+- **Database connection recycling** - Automatic client recycling every 1500 transactions to prevent stale connections
+- **Error metrics tracking** - Enhanced error monitoring and reporting for better diagnostics
+
+**New in Recent Updates:**
+- Improved retry logic that ensures retry counters are only incremented once
+- Enhanced block listener recovery from setup failures
+- Better error metrics for tracking indexer health
 
 ### Manual Recovery
 
@@ -441,3 +455,19 @@ If database is corrupted:
 6. Keep PostgreSQL and dependencies updated
 7. Implement database backups
 8. Use pre-commit hooks to catch issues early
+9. Monitor connection recycling metrics (default: every 1500 transactions)
+10. Leverage automatic retry mechanisms by implementing proper error handling
+11. Track error metrics via Prometheus for early problem detection
+12. Adjust CONNECT_TIMEOUT_MS and RPC_TIMEOUT_MS based on network conditions
+
+## Recent Improvements
+
+The indexer has recently received several reliability enhancements:
+
+- **Connection Management**: Automatic database client recycling prevents long-running connection issues
+- **Retry Logic**: Improved retry counting ensures failures are tracked accurately
+- **Block Listener Recovery**: Automatic recovery from block listener setup failures
+- **Error Metrics**: Enhanced error tracking provides better visibility into indexer health
+- **Performance Optimizations**: Better insert and stringify performance reduces processing bottlenecks
+
+For details on these improvements, see the [CHANGELOG.md](CHANGELOG.md).

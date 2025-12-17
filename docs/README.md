@@ -242,7 +242,6 @@ app.get("/metrics", async (req, res) => {
 
 - [Troubleshooting Guide](../TROUBLESHOOTING.md)
 - [Performance Guide](../PERFORMANCE.md)
-- [Security Considerations](../SECURITY.md)
 - Package README files in each package directory
 
 ## Contributing
@@ -251,4 +250,4 @@ When adding new public APIs:
 1. Add JSDoc comments
 2. Export from package index
 3. Update this documentation
-4. Run `pnpm docs` to regenerate
+4. Run `pnpm typedoc` to regenerate

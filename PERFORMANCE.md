@@ -154,14 +154,22 @@ The indexer includes automatic connection recycling:
 
 **Configuration:**
 ```typescript
-// Constant is exported from @eclesia/indexer-engine
-// Default value: 1500
+// Constant is exported from @eclesia/indexer-engine/src/constants.ts
+export const DB_CLIENT_RECYCLE_COUNT = 1500;  // Default value
 ```
+
+**How it works:**
+- The indexer tracks successful database transactions
+- After 1500 successful transactions, it automatically disconnects and reconnects the client
+- This prevents long-running connection issues and ensures fresh connections
 
 **Monitoring:**
 ```bash
 # Check active connections
 SELECT count(*) FROM pg_stat_activity WHERE datname = 'your_database';
+
+# Monitor connection recycling via logs (debug level)
+# Look for "Database client disconnected" and reconnection messages
 ```
 
 ### Maintenance
@@ -205,8 +213,6 @@ NODE_OPTIONS="--max-old-space-size=4096" npm start
 NODE_OPTIONS="--max-old-space-size=8192" npm start
 ```
 
-**Rule of thumb:** Allocate 1-2GB per 500 batch size
-
 ### Logging Level
 
 **Production:** `info` or `warn`
@@ -248,15 +254,11 @@ Only enable required modules:
 - Storage: 50GB SSD
 - Network: 10 Mbps
 
-**Performance:** ~100-200 blocks/sec
-
 ### Recommended Production
 - CPU: 4-8 cores
 - RAM: 16GB
 - Storage: 500GB NVMe SSD
 - Network: 100 Mbps
-
-**Performance:** ~500-1000 blocks/sec
 
 ### High-Performance Setup
 - CPU: 8-16 cores
@@ -264,8 +266,6 @@ Only enable required modules:
 - Storage: 1TB+ NVMe SSD (RAID 10)
 - Network: 1 Gbps
 - Local RPC node on same network
-
-**Performance:** ~1000-2000+ blocks/sec
 
 ### Storage Considerations
 
@@ -308,12 +308,20 @@ Only enable required modules:
 Adjust based on network conditions:
 
 ```typescript
-// In constants.ts (modify if needed)
-export const RPC_TIMEOUT_MS = 20000;  // 20 seconds (default)
+// In @eclesia/indexer-engine/src/constants.ts
+export const RPC_TIMEOUT_MS = 20000;        // 20 seconds (default) - for RPC call responses
+export const CONNECT_TIMEOUT_MS = 10000;    // 10 seconds (default) - for connection establishment
 ```
 
-**Slow networks:** Increase to 30000-60000ms
-**Fast local network:** Can reduce to 10000-15000ms
+**Slow networks:**
+- Increase RPC_TIMEOUT_MS to 30000-60000ms
+- Increase CONNECT_TIMEOUT_MS to 20000-30000ms
+
+**Fast local network:**
+- Can reduce RPC_TIMEOUT_MS to 10000-15000ms
+- Can reduce CONNECT_TIMEOUT_MS to 5000-8000ms
+
+**Recent Addition:** The CONNECT_TIMEOUT_MS constant was added to provide separate control over connection establishment timeout, improving reliability on slow networks.
 
 ## Benchmarking
 
@@ -322,17 +330,6 @@ Run benchmarks to establish baseline performance:
 ```bash
 pnpm bench
 ```
-
-**Key Metrics to Track:**
-- Map operations throughput
-- JSON stringify/parse speed
-- Block processing time
-- Memory allocation patterns
-
-**Baseline Performance:**
-- Map operations: ~35,000 ops/sec
-- Block header processing: ~900 blocks/sec (in memory)
-- JSON stringify: ~650 blocks/sec
 
 ## Monitoring Performance
 
@@ -344,37 +341,31 @@ pnpm bench
    ```promql
    rate(indexer_blocks_indexed_total[1m])
    ```
-   Target: >500 blocks/sec for live sync
 
 2. **Blocks Behind**
    ```promql
    indexer_blocks_behind
    ```
-   Target: <100 blocks
 
 3. **Block Processing Duration (p95)**
    ```promql
    histogram_quantile(0.95, rate(indexer_block_processing_duration_seconds_bucket[5m]))
    ```
-   Target: <0.1 seconds
 
 4. **Memory Usage**
    ```promql
    nodejs_heap_size_used_bytes / nodejs_heap_size_total_bytes
    ```
-   Target: <80%
 
 5. **Database Query Duration (p95)**
    ```promql
    histogram_quantile(0.95, rate(indexer_database_query_duration_seconds_bucket[5m]))
    ```
-   Target: <0.05 seconds
 
 ### Performance Alerts
 
 Set up alerts for:
 - Blocks behind > 1000 for 5+ minutes
-- Indexing rate < 100 blocks/sec for 5+ minutes
 - Memory usage > 90%
 - Block processing p95 > 1 second
 - Error rate > 10 errors/minute
@@ -490,7 +481,7 @@ Push limits to find bottlenecks:
 
 ```typescript
 {
-  batchSize: 1000,           // Maximum parallelism
+  batchSize: 1000,   
   startHeight: 1
 }
 ```
@@ -506,7 +497,6 @@ Push limits to find bottlenecks:
 ### Vertical Scaling (Scale Up)
 
 **Easiest approach:** Add more resources to single server
-- More CPU cores → Better parallel processing
 - More RAM → Larger batch sizes
 - Faster storage → Better database performance
 
@@ -594,39 +584,20 @@ env:
 - Use minimal indexing
 - LRU caches prevent unbounded growth
 
-## Performance Benchmarks
-
-### Expected Performance
-
-**Initial sync (from genesis):**
-- Minimal mode: 500-1000 blocks/sec
-- Full mode: 300-700 blocks/sec
-
-**Live sync (keeping up):**
-- Block time: ~6 seconds
-- Processing time: <1 second/block
-- Headroom: 6x capacity
-
-**Genesis processing:**
-- Small chains (<10K accounts): 1-2 minutes
-- Medium chains (10K-100K): 5-15 minutes
-- Large chains (100K-1M): 30-120 minutes
-
-### Performance Tuning Results
-
-After optimizations, expect:
-- 50-100% throughput increase
-- 30-50% memory reduction
-- 60-80% database query time reduction
 
 ## Advanced Optimizations
 
 ### 1. Connection Recycling
 
 Already implemented and tuned:
-- Recycles every 1500 transactions
-- Prevents connection degradation
-- Automatically handles reconnection
+- Recycles every 1500 transactions (configurable via DB_CLIENT_RECYCLE_COUNT)
+- Prevents connection degradation and stale connection issues
+- Automatically handles reconnection with proper error handling
+- Tracks successful transactions to ensure accurate recycling
+
+**Recent Improvements:**
+- Enhanced tracking to prevent issues during transaction boundaries
+- Better error handling during reconnection
 
 ### 2. Transaction Chunking
 
@@ -670,6 +641,11 @@ await db.query(
 
 **Performance:** 10-100x faster for bulk operations
 
+**Recent Optimizations:**
+- The blocks module has been optimized with improved insert performance using better SQL patterns
+- JSON stringify operations have been enhanced for better throughput when serializing block data
+- These optimizations result in measurable performance gains during high-volume indexing
+
 ## Monitoring Performance Over Time
 
 ### Baseline Metrics
@@ -683,9 +659,6 @@ Establish baseline after optimization:
 ### Regression Detection
 
 Monitor for degradation:
-```promql
-# Indexing rate decreasing over time
-delta(indexer_blocks_indexed_total[1h]) < 1800000  # <500 blocks/sec
 
 # Memory usage increasing
 rate(nodejs_heap_size_used_bytes[1h]) > 0  # Growing memory
