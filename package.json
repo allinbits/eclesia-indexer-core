@@ -26,11 +26,11 @@
   "private": true,
   "license": "ISC",
   "devDependencies": {
-    "@changesets/cli": "^2.29.7",
-    "@types/node": "^24.10.0",
+    "@changesets/cli": "^2.29.8",
+    "@types/node": "^24.10.4",
     "husky": "^9.1.7",
-    "lint-staged": "^16.2.6",
-    "typedoc": "^0.28.14",
-    "vitest": "^4.0.7"
+    "lint-staged": "^16.2.7",
+    "typedoc": "^0.28.15",
+    "vitest": "^4.0.16"
   }
 }
