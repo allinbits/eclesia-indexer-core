@@ -1,5 +1,11 @@
 # @eclesia/indexer-engine
 
+## 3.0.0
+
+### Major Changes
+
+- 1f86bc0: Adding gno Support
+
 ## 2.14.2
 
 ### Patch Changes
