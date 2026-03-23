@@ -6,7 +6,7 @@ import {
 import * as fs from "node:fs";
 
 import {
-  BlockResponse, BlockResultsResponse, CometClient, connectComet, Event, StatusResponse, toRfc3339WithNanoseconds,
+  BlockResponse, BlockResultsResponse, connectComet, Event, StatusResponse, toRfc3339WithNanoseconds,
 } from "@cosmjs/tendermint-rpc";
 import {
   BlockResultsResponse as BlockResultsResponse38, Event as Event38,
@@ -18,9 +18,6 @@ import {
   QueryValidatorsRequest,
   QueryValidatorsResponse,
 } from "cosmjs-types/cosmos/staking/v1beta1/query.js";
-import {
-  Validator,
-} from "cosmjs-types/cosmos/staking/v1beta1/staking.js";
 import {
   Tx,
 } from "cosmjs-types/cosmos/tx/v1beta1/tx.js";
@@ -123,11 +120,13 @@ export class EcleciaIndexer extends EclesiaEmitter {
   /** Number of retry attempts for error recovery */
   private retryCount = 0;
 
-  /** CometBFT client for ad-hoc queries */
-  public client!: CometClient;
+  /** RPC client for ad-hoc queries (CometClient or custom client via connectFn) */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  public client!: any;
 
-  /** CometBFT client for block and validator queries */
-  public blockClient!: CometClient;
+  /** RPC client for block and validator queries (CometClient or custom client via connectFn) */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  public blockClient!: any;
 
   /** Winston logger instance */
   public log: winston.Logger;
@@ -141,7 +140,8 @@ export class EcleciaIndexer extends EclesiaEmitter {
   };
 
   /** WebSocket subscription for new block notifications */
-  private subscription: ReturnType<CometClient["subscribeNewBlock"]> | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private subscription: any | null = null;
 
   /** Timeout handler for block reception */
   private blockTimeout: NodeJS.Timeout | null = null;
@@ -338,12 +338,13 @@ export class EcleciaIndexer extends EclesiaEmitter {
         this.blockClient.disconnect();
         this.log.verbose("Disconnected from RPC");
       }
-      const connectTimeoutPromise = new Promise<ReturnType<typeof connectComet>>((resolve, reject) => {
+      const connectFn = this.config.connectFn ?? connectComet;
+      const connectTimeoutPromise = new Promise<never>((_resolve, reject) => {
         setTimeout(reject, CONNECT_TIMEOUT_MS, []);
       });
-      this.client = await Promise.race([connectComet(this.config.rpcUrl), connectTimeoutPromise]);
+      this.client = await Promise.race([connectFn(this.config.rpcUrl), connectTimeoutPromise]);
       this.log.info("Connected to RPC for ad hoc queries");
-      this.blockClient = await Promise.race([connectComet(this.config.rpcUrl), connectTimeoutPromise]);
+      this.blockClient = await Promise.race([connectFn(this.config.rpcUrl), connectTimeoutPromise]);
       this.log.info("Connected to RPC for block & validator info");
 
       return true;
@@ -417,7 +418,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
           ? this.client.subscribeNewBlock()
           : null;
       }
-      const statusPromise: Promise<StatusResponse> = new Promise((resolve, reject) => {
+      const statusPromise: Promise<StatusResponse> = new Promise((_resolve, reject) => {
         setTimeout(reject,
           RPC_TIMEOUT_MS,
           false);
@@ -435,8 +436,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
           this.subscription.addListener(this.blockListener);
         }
         else {
-          this.prometheus?.recordError("rpc");
-          throw new Error("Could not subscribe to new blocks");
+          // Fall back to polling if subscription is not available (e.g. custom RPC client)
+          this.log.info("WebSocket subscription not available, falling back to polling");
+          this.config.usePolling = true;
+          this.pollForBlock();
         }
       }
     }
@@ -482,7 +485,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
         // Main block processing (minimal)
         if (this.isMinimal(this.blockQueue)) {
-          const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((resolve, reject) => {
+          const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((_resolve, reject) => {
             setTimeout(reject, QUEUE_DEQUEUE_TIMEOUT_MS, []);
           });
           const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
@@ -497,7 +500,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }
         // Main block processing (full)
         else {
-          const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((resolve, reject) => {
+          const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((_resolve, reject) => {
             setTimeout(reject, QUEUE_DEQUEUE_TIMEOUT_MS, []);
           });
           const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
@@ -641,7 +644,8 @@ export class EcleciaIndexer extends EclesiaEmitter {
     return prom;
   };
 
-  private async processBlock(block: BlockResponse, block_results: BlockResultsResponse | BlockResultsResponse38, validators?: Validator[]) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async processBlock(block: any, block_results: any, validators?: any) {
     const endTimer = this.prometheus?.timeBlockProcessing();
     const height = block.block.header.height;
     this.heightToProcess = height;
@@ -649,6 +653,22 @@ export class EcleciaIndexer extends EclesiaEmitter {
       height);
     // Initialize height & timestamp to be used for this block-processing run
     const timestamp = toRfc3339WithNanoseconds(block.block.header.time);
+
+    // Use custom block processor if provided (for non-Cosmos SDK chains like Gno)
+    if (this.config.processBlockFn) {
+      await this.config.processBlockFn(block, block_results, {
+        asyncEmit: this.asyncEmit,
+        log: this.log,
+        prometheus: this.prometheus,
+        height,
+        timestamp,
+      }, validators);
+      endTimer?.();
+      this.prometheus?.updateBlockMetrics(height, this.latestHeight, this.blockQueue.size());
+      return;
+    }
+
+    // Default Cosmos SDK block processing logic
 
     // Use & await asyncEmit to ensure db insertions in order
 
@@ -734,8 +754,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
         const eventsToAdd: typeof events = [];
         this.log.silly("No events found in tx log. Parsing events for msg_index");
         for (let m = 0; m < block_results.results[t].events.length; m++) {
-          if (block_results.results[t].events[m].attributes.find(a => decodeAttr(a.key) == "msg_index")) {
-            const mi = decodeAttr(block_results.results[t].events[m].attributes.find(a => decodeAttr(a.key) == "msg_index")?.value ?? "");
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          if (block_results.results[t].events[m].attributes.find((a: any) => decodeAttr(a.key) == "msg_index")) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const mi = decodeAttr(block_results.results[t].events[m].attributes.find((a: any) => decodeAttr(a.key) == "msg_index")?.value ?? "");
             if (mi != "") {
               const miNum = parseInt(mi);
               let ev = eventsToAdd.find(x => x.msg_index == miNum);
@@ -825,7 +847,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
       try {
         // Main fetching logic for minimal indexer
         if (this.isMinimal(this.blockQueue)) {
-          const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse]> = new Promise((resolve, reject) => {
+          const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse]> = new Promise((_resolve, reject) => {
             setTimeout(reject,
               RPC_TIMEOUT_MS,
               false);
@@ -841,7 +863,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }
         else {
           // Main fetching logic for minimal indexer
-          const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse, Uint8Array]> = new Promise((resolve, reject) => {
+          const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse, Uint8Array]> = new Promise((_resolve, reject) => {
             setTimeout(reject,
               RPC_TIMEOUT_MS,
               false);

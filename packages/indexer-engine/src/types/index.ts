@@ -19,6 +19,22 @@ import {
   CircularBuffer,
 } from "../promise-queue";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/** Function signature for custom block processing logic */
+export type ProcessBlockFn = (
+  block: any,
+  blockResults: any,
+  context: {
+    asyncEmit: EmitFunc<any>
+    log: any
+    prometheus: any
+    height: number
+    timestamp: string
+  },
+  validators?: any,
+) => Promise<void>;
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 /** Configuration interface for the Eclesia indexer */
 export type EcleciaIndexerConfig = {
   startHeight?: number                                           // Block height to start indexing from
@@ -40,6 +56,9 @@ export type EcleciaIndexerConfig = {
   init?: () => Promise<void>                                     // Custom initialization function
   beginTransaction: () => Promise<void>                          // Function to begin database transaction
   endTransaction: (status: boolean) => Promise<void>             // Function to end database transaction
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  connectFn?: (url: string) => Promise<any>                      // Custom RPC connect function (replaces connectComet)
+  processBlockFn?: ProcessBlockFn                                // Custom block processing function for non-Cosmos chains
 };
 
 /** Queue for full indexing mode with validator data */
