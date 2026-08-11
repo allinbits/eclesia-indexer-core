@@ -6,6 +6,9 @@ import {
 import * as fs from "node:fs";
 
 import {
+  MsgRotateConsPubKey,
+} from "@atomone/atomone-types/cosmos/staking/v1beta1/tx.js";
+import {
   GeneratedType,
 } from "@cosmjs/proto-signing";
 import {
@@ -148,6 +151,9 @@ export type Events = {
   "/cosmos.staking.v1beta1.MsgUndelegate": {
     value: Types.TxResult<Uint8Array>
   }
+  "/cosmos.staking.v1beta1.MsgRotateConsPubKey": {
+    value: Types.TxResult<Uint8Array>
+  }
 
   "gentx/cosmos.staking.v1beta1.MsgCreateValidator": {
     value: GenesisCreateValidator
@@ -219,7 +225,9 @@ export class StakingModule implements Types.IndexingModule {
 
   async cacheValidatorData() {
     const db = this.pgIndexer.getInstance();
-    const res = await db.query("SELECT * FROM validator_infos");
+    const res = await db.query(
+      "SELECT operator_address, consensus_address FROM validators WHERE is_active",
+    );
     for (let i = 0; i < res.rows.length; i++) {
       this.validatorAddressCache.set(
         res.rows[i].operator_address, res.rows[i].consensus_address,
@@ -277,11 +285,20 @@ export class StakingModule implements Types.IndexingModule {
             + Buffer.from(event.value.pubkey.key, "base64").toString("hex")
             + ")";
 
-        let endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator") ?? void 0;
+        // validator_infos must be inserted first: validators.operator_address references it
+        let endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-genesis-validator-info") ?? void 0;
+        await db.query({
+          name: "save-validator-info-genesis",
+          text: "INSERT INTO validator_infos(operator_address, self_delegate_address, max_change_rate, max_rate) VALUES ($1,$2,$3,$4)",
+          values: [event.value.validator_address, event.value.delegator_address, event.value.commission.max_change_rate, event.value.commission.max_rate],
+        });
+        endTimer?.();
+
+        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator") ?? void 0;
         await db.query({
           name: "save-genesis-validator",
-          text: "INSERT INTO validators(consensus_address,consensus_pubkey) VALUES ($1,$2)",
-          values: [consensus_address, consensus_pubkey],
+          text: "INSERT INTO validators(consensus_address, consensus_pubkey, operator_address) VALUES ($1,$2,$3)",
+          values: [consensus_address, consensus_pubkey, event.value.validator_address],
         });
         endTimer?.();
 
@@ -299,13 +316,6 @@ export class StakingModule implements Types.IndexingModule {
             event.value.value.amount,
             consensus_address,
           ],
-        });
-        endTimer?.();
-        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-genesis-validator-info") ?? void 0;
-        await db.query({
-          name: "save-validator-info-genesis",
-          text: "INSERT INTO validator_infos(consensus_address, operator_address, self_delegate_address, max_change_rate, max_rate) VALUES ($1,$2,$3,$4,$5)",
-          values: [consensus_address, event.value.validator_address, event.value.delegator_address, event.value.commission.max_change_rate, event.value.commission.max_rate],
         });
         endTimer?.();
         this.validatorAddressCache.set(
@@ -410,11 +420,19 @@ export class StakingModule implements Types.IndexingModule {
             + "("
             + Buffer.from(key.key).toString("hex")
             + ")";
-        let endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator") ?? void 0;
+        // validator_infos must be inserted first: validators.operator_address references it
+        let endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-info") ?? void 0;
+        await db.query({
+          name: "save-validator-info",
+          text: "INSERT INTO validator_infos(operator_address, self_delegate_address, max_change_rate, max_rate, height) VALUES ($1,$2,$3,$4,$5)",
+          values: [msg.validatorAddress, msg.delegatorAddress, msg.commission?.maxChangeRate, msg.commission?.maxRate, event.height],
+        });
+        endTimer?.();
+        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator") ?? void 0;
         await db.query({
           name: "save-validator",
-          text: "INSERT INTO validators(consensus_address,consensus_pubkey) VALUES ($1,$2)",
-          values: [consensus_address, consensus_pubkey],
+          text: "INSERT INTO validators(consensus_address, consensus_pubkey, operator_address, height) VALUES ($1,$2,$3,$4)",
+          values: [consensus_address, consensus_pubkey, msg.validatorAddress, event.height],
         });
         endTimer?.();
         if (msg.value) {
@@ -426,13 +444,6 @@ export class StakingModule implements Types.IndexingModule {
           });
           endTimer?.();
         }
-        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-info") ?? void 0;
-        await db.query({
-          name: "save-validator-info",
-          text: "INSERT INTO validator_infos(consensus_address, operator_address, self_delegate_address, max_change_rate, max_rate,height) VALUES ($1,$2,$3,$4,$5,$6)",
-          values: [consensus_address, msg.validatorAddress, msg.delegatorAddress, msg.commission?.maxChangeRate, msg.commission?.maxRate, event.height],
-        });
-        endTimer?.();
         this.validatorAddressCache.set(msg.validatorAddress, consensus_address);
         if (msg.description) {
           endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-description") ?? void 0;
@@ -473,6 +484,10 @@ export class StakingModule implements Types.IndexingModule {
       const _msg = MsgUndelegate.decode(event.value.tx);
     });
 
+    this.indexer.on("/cosmos.staking.v1beta1.MsgRotateConsPubKey", async (event) => {
+      await this.rotateConsPubKey(event);
+    });
+
     this.indexer.on("genesis/value/app_state.staking.params", async (event) => {
       const db = this.pgIndexer.getInstance();
       const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staking-params") ?? void 0;
@@ -498,19 +513,12 @@ export class StakingModule implements Types.IndexingModule {
               "hex",
             )
             + ")";
-        let endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator") ?? void 0;
-        await db.query({
-          name: "save-validator",
-          text: "INSERT INTO validators(consensus_address,consensus_pubkey) VALUES ($1,$2)",
-          values: [consensus_address, consensus_pubkey],
-        });
-        endTimer?.();
-        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-info") ?? void 0;
+        // validator_infos must be inserted first: validators.operator_address references it
+        let endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-info") ?? void 0;
         await db.query({
           name: "save-validator-info",
-          text: "INSERT INTO validator_infos(consensus_address, operator_address, self_delegate_address, max_change_rate, max_rate,height) VALUES ($1,$2,$3,$4,$5,$6)",
+          text: "INSERT INTO validator_infos(operator_address, self_delegate_address, max_change_rate, max_rate, height) VALUES ($1,$2,$3,$4,$5)",
           values: [
-            consensus_address,
             validator.operator_address,
             Utils.chainAddressfromKeyhash(
               this.chainPrefix, Utils.keyHashfromAddress(validator.operator_address),
@@ -519,6 +527,13 @@ export class StakingModule implements Types.IndexingModule {
             validator.commission.commission_rates.max_rate,
             null,
           ],
+        });
+        endTimer?.();
+        endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator") ?? void 0;
+        await db.query({
+          name: "save-validator",
+          text: "INSERT INTO validators(consensus_address, consensus_pubkey, operator_address, height) VALUES ($1,$2,$3,$4)",
+          values: [consensus_address, consensus_pubkey, validator.operator_address, null],
         });
         endTimer?.();
         endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-description") ?? void 0;
@@ -618,7 +633,7 @@ export class StakingModule implements Types.IndexingModule {
     const db = this.pgIndexer.getInstance();
     const endTimer = this.indexer.prometheus?.timeDatabaseQuery("tokens-to-shares-at-height") ?? void 0;
     const res = await db.query(
-      "SELECT * FROM validator_voting_powers,validator_infos WHERE validator_address=validator_infos.operator_address AND validator_infos.consensus_address=$1 AND (validator_voting_powers.height<=$2 OR validator_voting_powers.height IS NULL) AND (validator_infos.height<=$2 OR validator_infos.height IS NULL) ORDER BY validator_voting_powers.height DESC NULLS LAST,validator_infos.height DESC NULLS LAST LIMIT 1", [validator, height],
+      "SELECT * FROM validator_voting_powers,validators WHERE validator_voting_powers.validator_address=validators.operator_address AND validators.consensus_address=$1 AND (validator_voting_powers.height<=$2 OR validator_voting_powers.height IS NULL) ORDER BY validator_voting_powers.height DESC NULLS LAST LIMIT 1", [validator, height],
     );
     endTimer?.();
     if (res.rowCount && res.rowCount > 0) {
@@ -638,11 +653,10 @@ export class StakingModule implements Types.IndexingModule {
     validator: string,
     height: number,
   ) {
-    const consensus_address = await this.getConsensusAddress(validator, 0);
     const db = this.pgIndexer.getInstance();
     const endTimer = this.indexer.prometheus?.timeDatabaseQuery("shares-to-tokens-at-height") ?? void 0;
     const res = await db.query(
-      "SELECT * FROM validator_voting_powers,validator_infos WHERE validator_address=validator_infos.operator_address AND validator_infos.consensus_address=$1 AND (validator_voting_powers.height<=$2 OR validator_voting_powers.height IS NULL) AND (validator_infos.height<=$2 OR validator_infos.height IS NULL) ORDER BY validator_voting_powers.height DESC NULLS LAST,validator_infos.height DESC NULLS LAST LIMIT 1", [consensus_address, height],
+      "SELECT * FROM validator_voting_powers WHERE validator_address=$1 AND (height<=$2 OR height IS NULL) ORDER BY height DESC NULLS LAST LIMIT 1", [validator, height],
     );
     endTimer?.();
     if (res.rowCount && res.rowCount > 0) {
@@ -751,6 +765,110 @@ export class StakingModule implements Types.IndexingModule {
       endTimer?.();
     }
     await this.delegate(delegator, validatorDest, amount, height);
+  }
+
+  /**
+   * Handles a MsgRotateConsPubKey: derives the new consensus address/pubkey from
+   * the rotated key, retires the validator's previous consensus key and appends
+   * the new active one to the validators table, then carries live delegations
+   * over to the new consensus address.
+   */
+  async rotateConsPubKey(event: {
+    value: Types.TxResult<Uint8Array>
+    height?: number
+  }) {
+    if (!event.height) {
+      return;
+    }
+    const msg = MsgRotateConsPubKey.decode(event.value.tx);
+    const db = this.pgIndexer.getInstance();
+
+    // Derive the new consensus address + pubkey from the rotated key using the
+    // same hash path as MsgCreateValidator.
+    const key
+      = msg.newPubkey?.typeUrl == "/cosmos.crypto.ed25519.PubKey"
+        ? EdPubKey.decode(msg.newPubkey.value)
+        : SecpPubKey.decode(msg.newPubkey?.value ?? new Uint8Array());
+    const newConsensusAddress = Utils.chainAddressfromKeyhash(
+      this.chainPrefix + "valcons", createHash("sha256").update(key.key).digest("hex").slice(0, 40),
+    );
+    const newConsensusPubkey
+      = (msg.newPubkey?.typeUrl ?? "")
+        + "("
+        + Buffer.from(key.key).toString("hex")
+        + ")";
+
+    const oldConsensusAddress = await this.getConsensusAddress(
+      msg.validatorAddress, event.height,
+    );
+
+    // Retire the previous consensus key before appending the new active one so
+    // the "one active key per operator" partial-unique index stays satisfied.
+    let endTimer = this.indexer.prometheus?.timeDatabaseQuery("rotate-deactivate-validator") ?? void 0;
+    await db.query({
+      name: "rotate-deactivate-validator",
+      text: "UPDATE validators SET is_active=false WHERE consensus_address=$1",
+      values: [oldConsensusAddress],
+    });
+    endTimer?.();
+
+    endTimer = this.indexer.prometheus?.timeDatabaseQuery("rotate-save-validator") ?? void 0;
+    await db.query({
+      name: "rotate-save-validator",
+      text: "INSERT INTO validators(consensus_address, consensus_pubkey, operator_address, is_active, height) VALUES ($1,$2,$3,true,$4)",
+      values: [newConsensusAddress, newConsensusPubkey, msg.validatorAddress, event.height],
+    });
+    endTimer?.();
+
+    // Carry live delegations over from the old consensus address to the new one.
+    await this.rotateStakedBalances(
+      oldConsensusAddress, newConsensusAddress, event.height,
+    );
+
+    this.validatorAddressCache.set(msg.validatorAddress, newConsensusAddress);
+  }
+
+  /**
+   * Migrates a validator's live delegations from an old consensus address to a
+   * new one after a consensus-key rotation. For each delegator with a non-zero
+   * delegation under the old address, at the rotation height, we write a zeroed
+   * row under the old address and an equal row under the new address so the
+   * running balance follows the validator's new consensus key.
+   */
+  async rotateStakedBalances(
+    oldConsensus: string,
+    newConsensus: string,
+    height: number,
+  ) {
+    const db = this.pgIndexer.getInstance();
+    let endTimer = this.indexer.prometheus?.timeDatabaseQuery("rotate-get-staked-balances") ?? void 0;
+    const res = await db.query(
+      "SELECT DISTINCT ON (delegator) delegator, to_json(amount) AS coin, shares FROM staked_balances WHERE validator=$1 ORDER BY delegator, height DESC NULLS LAST", [oldConsensus],
+    );
+    endTimer?.();
+    for (let i = 0; i < res.rows.length; i++) {
+      const row = res.rows[i];
+      if (!row.delegator) {
+        continue;
+      }
+      const shares = new BigNumber(row.shares ?? 0);
+      const amount = BigInt(row.coin?.amount ?? 0);
+      // Skip delegators that have already fully unbonded.
+      if (shares.lte(0) && amount <= 0n) {
+        continue;
+      }
+      const denom = row.coin?.denom;
+      endTimer = this.indexer.prometheus?.timeDatabaseQuery("rotate-save-staked-balance") ?? void 0;
+      // Zero the delegation under the old consensus address.
+      await db.query(
+        "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4,$5)", [row.delegator, oldConsensus, "(\"" + denom + "\", \"0\")", "0", height],
+      );
+      // Carry it over under the new consensus address.
+      await db.query(
+        "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4,$5)", [row.delegator, newConsensus, "(\"" + denom + "\", \"" + row.coin.amount + "\")", shares.toPrecision(), height],
+      );
+      endTimer?.();
+    }
   }
 
   async getUnbondingHeight(

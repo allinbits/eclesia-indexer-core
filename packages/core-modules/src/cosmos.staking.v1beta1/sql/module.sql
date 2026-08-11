@@ -1,21 +1,49 @@
-/* ---- PARAMS ---- */
+/* ---- VALIDATORS INFO ---- */
+
+/* Operator-level static info. One row per validator, keyed by operator_address
+   (which never changes across a consensus-key rotation). Referenced by the
+   description/commission/voting-power/status tables. */
+CREATE TABLE validator_infos
+(
+    operator_address      TEXT   NOT NULL UNIQUE,
+    self_delegate_address TEXT REFERENCES accounts (address),
+    max_change_rate       TEXT   NOT NULL,
+    max_rate              TEXT   NOT NULL,
+    height                BIGINT REFERENCES blocks (height)
+);
+CREATE INDEX validator_info_operator_address_index ON validator_infos (operator_address);
+CREATE INDEX validator_info_self_delegate_address_index ON validator_infos (self_delegate_address);
+
+/* ---- VALIDATORS (consensus keys) ---- */
+
+/* One row per consensus key a validator has ever used. On a MsgRotateConsPubKey
+   the previous row is flipped to is_active=false and a new row is appended, so
+   this table doubles as the historical operator<->consensus mapping (an old
+   block's proposer_address still resolves here to its operator). */
 CREATE TABLE validators
 (
-    consensus_address TEXT NOT NULL PRIMARY KEY, /* Validator consensus address */
-    consensus_pubkey  TEXT NOT NULL UNIQUE /* Validator consensus public key */
+    consensus_address TEXT    NOT NULL PRIMARY KEY, /* Validator consensus address */
+    consensus_pubkey  TEXT    NOT NULL UNIQUE, /* Validator consensus public key */
+    operator_address  TEXT    NOT NULL REFERENCES validator_infos (operator_address),
+    is_active         BOOLEAN NOT NULL DEFAULT TRUE, /* Whether this is the validator's current consensus key */
+    height            BIGINT  REFERENCES blocks (height) /* Height at which this key became active */
 );
+/* At most one active consensus key per operator */
+CREATE UNIQUE INDEX validators_active_operator_idx ON validators (operator_address) WHERE is_active;
+CREATE INDEX validators_operator_address_index ON validators (operator_address);
 ALTER TABLE blocks ADD CONSTRAINT block_validator_fkey FOREIGN KEY(proposer_address) REFERENCES validators(consensus_address);
 
+/* ---- PARAMS ---- */
 CREATE TABLE staking_params
 (
-    
+
     params     JSONB   NOT NULL,
     height     BIGINT
-    
+
 );
 CREATE INDEX staking_params_height_index ON staking_params (height DESC NULLS LAST);
 
-CREATE TABLE staked_balances 
+CREATE TABLE staked_balances
 (
     delegator TEXT             REFERENCES accounts (address),
     shares numeric NOT NULL,
@@ -30,29 +58,14 @@ CREATE INDEX staked_balances_lookup_index ON staked_balances (delegator, validat
 /* ---- POOL ---- */
 CREATE TABLE staking_pool
 (
-    
+
     bonded_tokens            TEXT    NOT NULL,
     not_bonded_tokens        TEXT    NOT NULL,
     height                   BIGINT,
     CONSTRAINT unique_pool UNIQUE (bonded_tokens, not_bonded_tokens)
-    
+
 );
 CREATE INDEX staking_pool_height_index ON staking_pool (height DESC NULLS LAST);
-
-/* ---- VALIDATORS INFO ---- */
-
-CREATE TABLE validator_infos
-(
-    consensus_address     TEXT   NOT NULL UNIQUE REFERENCES validators (consensus_address),
-    operator_address      TEXT   NOT NULL UNIQUE,
-    self_delegate_address TEXT REFERENCES accounts (address),
-    max_change_rate       TEXT   NOT NULL,
-    max_rate              TEXT   NOT NULL,
-    height                BIGINT REFERENCES blocks (height)
-);
-CREATE INDEX validator_info_operator_address_index ON validator_infos (operator_address);
-CREATE INDEX validator_info_consensus_address_index ON validator_infos (consensus_address);
-CREATE INDEX validator_info_self_delegate_address_index ON validator_infos (self_delegate_address);
 
 CREATE TABLE validator_descriptions
 (

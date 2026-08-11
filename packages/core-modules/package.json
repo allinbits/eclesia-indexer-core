@@ -42,6 +42,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@atomone/atomone-types": "^4.0.2",
     "@cosmjs/encoding": "^0.36.0",
     "@cosmjs/proto-signing": "^0.36.0",
     "@cosmjs/tendermint-rpc": "^0.36.0",
