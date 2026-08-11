@@ -1,5 +1,11 @@
 # @eclesia/core-modules-pg
 
+## 2.15.0
+
+### Minor Changes
+
+- 10c0226: Handle `MsgRotateConsPubKey` in the staking module: append the new consensus key to `validators` (now carrying `operator_address`, `is_active`, and `height`), deactivate the previous key, and carry live delegations over to the new consensus address. `validator_infos.consensus_address` is dropped in favour of the operator↔consensus mapping now held on `validators`.
+
 ## 2.14.3
 
 ### Patch Changes
