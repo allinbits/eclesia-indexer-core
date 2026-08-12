@@ -697,13 +697,25 @@ export class StakingModule implements Types.IndexingModule {
   }
 
   async getConsensusAddress(validator: string, _height: number) {
-    const consensus_address = this.validatorAddressCache.get(validator);
-    if (!consensus_address) {
-      throw new Error("No consensus address");
+    const cached = this.validatorAddressCache.get(validator);
+    if (cached) {
+      return cached;
     }
-    else {
+    // Cache miss (LRU eviction, or a cache not yet warmed after a restart):
+    // fall back to the validators table, which holds the current (active)
+    // consensus key for each operator.
+    const db = this.pgIndexer.getInstance();
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-consensus-address") ?? void 0;
+    const res = await db.query(
+      "SELECT consensus_address FROM validators WHERE operator_address=$1 AND is_active LIMIT 1", [validator],
+    );
+    endTimer?.();
+    if (res.rowCount && res.rowCount > 0) {
+      const consensus_address = res.rows[0].consensus_address;
+      this.validatorAddressCache.set(validator, consensus_address);
       return consensus_address;
     }
+    throw new Error("No consensus address");
   }
 
   async getValidatorCommission(validator: string) {
