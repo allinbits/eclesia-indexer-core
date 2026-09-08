@@ -332,19 +332,27 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
   public async connect() {
     try {
-      if (this.client && this.tryToRecover) {
+      if (this.client) {
         this.log.verbose("Recover from error. Attempting to disconnect from RPC");
-        this.client.disconnect();
-        this.blockClient.disconnect();
+        try {
+          this.client.disconnect();
+        }
+        catch (_e) { /* empty */ }
+        try {
+          this.blockClient?.disconnect();
+        }
+        catch (_e) { /* empty */ }
         this.log.verbose("Disconnected from RPC");
       }
       const connectFn = this.config.connectFn ?? connectComet;
       const connectTimeoutPromise = new Promise<never>((_resolve, reject) => {
-        setTimeout(reject, CONNECT_TIMEOUT_MS, []);
+        setTimeout(reject, CONNECT_TIMEOUT_MS, new RPCError("RPC connection timed out"));
       });
+      this.log.info("Attempting to connected to RPC: " + this.config.rpcUrl);
       this.client = await Promise.race([connectFn(this.config.rpcUrl), connectTimeoutPromise]);
       this.log.info("Connected to RPC for ad hoc queries");
       this.blockClient = await Promise.race([connectFn(this.config.rpcUrl), connectTimeoutPromise]);
+      await Promise.race([this.blockClient.status(), connectTimeoutPromise]);
       this.log.info("Connected to RPC for block & validator info");
 
       return true;
@@ -421,7 +429,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
       const statusPromise: Promise<StatusResponse> = new Promise((_resolve, reject) => {
         setTimeout(reject,
           RPC_TIMEOUT_MS,
-          false);
+          new RPCError("RPC status call timed out"));
       });
       const status = await Promise.race([this.client.status(), statusPromise]);
       this.latestHeight = status.syncInfo.latestBlockHeight;
