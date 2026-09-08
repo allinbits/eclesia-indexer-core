@@ -1,5 +1,11 @@
 # @eclesia/indexer-engine
 
+## 2.14.5
+
+### Patch Changes
+
+- 10c0226: Better RPC connect/disconnect handling and logging
+
 ## 2.14.2
 
 ### Patch Changes
