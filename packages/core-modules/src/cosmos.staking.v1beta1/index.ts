@@ -173,6 +173,10 @@ import {
   fileURLToPath,
 } from "node:url";
 
+import {
+  bech32,
+} from "bech32";
+
 // ESM compatibility for __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -407,6 +411,9 @@ export class StakingModule implements Types.IndexingModule {
       "/cosmos.staking.v1beta1.MsgCreateValidator", async (event): Promise<void> => {
         const db = this.pgIndexer.getInstance();
         const msg = MsgCreateValidator.decode(event.value.tx);
+        if (!msg.delegatorAddress) {
+          msg.delegatorAddress = bech32.encode(this.chainPrefix, bech32.decode(msg.validatorAddress).words);
+        }
         const key
           = msg.pubkey?.typeUrl == "/cosmos.crypto.ed25519.PubKey"
             ? EdPubKey.decode(msg.pubkey.value)
