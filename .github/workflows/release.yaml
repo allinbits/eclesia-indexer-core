@@ -7,8 +7,10 @@ name: Release
 #    with provenance, and pushes the git tags.
 #
 # The version commit, the tags and the release PR are created through the GitHub API
-# (changesets/action v2 default), so they are signed with GitHub's key and satisfy the
-# signed-commit rule on main; the git CLI would produce unsigned commits that cannot be merged.
+# (commitMode: github-api), so they are signed with GitHub's key and satisfy the signed-commit
+# rule on main; the git CLI would produce unsigned commits that cannot be merged.
+# changesets/action v1 is required while this repository uses Changesets CLI v2; v2 of the
+# action only works with CLI v3.
 #
 # Publishing uses npm trusted publishing (OIDC via id-token: write), so no NPM_TOKEN secret is
 # needed. Each package must list this repository and this workflow file as a trusted publisher
@@ -65,17 +67,18 @@ jobs:
 
       - name: Create Release Pull Request or Publish to npm
         id: changesets
-        uses: changesets/action@v2
+        uses: changesets/action@v1
         with:
           # Opens/updates a "chore: version packages" PR while changesets are pending.
           # When that PR is merged, runs the publish script, pushes the git tags and creates
           # a GitHub release per package.
-          version-script: pnpm version:packages
-          publish-script: pnpm release
-          commit-message: 'chore: version packages'
-          pr-title: 'chore: version packages'
+          version: pnpm version:packages
+          publish: pnpm release
+          commit: 'chore: version packages'
+          title: 'chore: version packages'
+          commitMode: github-api
         env:
-          # Read by @changesets/changelog-github while versioning to resolve PR and commit links;
-          # the action itself authenticates with its github-token input (defaults to the job token)
+          # Used by the action for the API calls and by @changesets/changelog-github while
+          # versioning to resolve PR and commit links
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
