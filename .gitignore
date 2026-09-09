@@ -21,3 +21,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Profiling output (node --cpu-prof / --heap-prof)
+test-runner-profile/

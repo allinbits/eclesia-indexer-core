@@ -123,7 +123,7 @@ After block 1, the indexer will process blocks sequentially at normal speed.
 Your indexer is now running! You can:
 
 - **Access the Hasura GraphQL console** to query indexed data
-- **Monitor indexing progress** through the logs and health check endpoint (http://localhost:8080/health)
+- **Monitor indexing progress** through the logs and health check endpoint (http://localhost:8888/health)
 - **View metrics** if Prometheus is enabled (http://localhost:9090/metrics)
 - **Customize modules** and indexing logic as needed
 - **Performance tuning** - See [PERFORMANCE.md](PERFORMANCE.md) for optimization guidance

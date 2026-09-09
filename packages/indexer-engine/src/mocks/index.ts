@@ -4,5 +4,5 @@
  */
 
 export {
-  createMockRpcClient, MockRpcClient, type MockRpcConfig,
+  createMockRpcClient, mockModuleAccounts, MockRpcClient, type MockRpcConfig, syntheticAddress,
 } from "./rpc-client.js";

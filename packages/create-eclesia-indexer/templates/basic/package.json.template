@@ -24,15 +24,19 @@
     "blockchain"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "@cosmjs/proto-signing": "^0.36.0",
     "@cosmjs/stargate": "^0.36.0",
     "@cosmjs/tendermint-rpc": "^0.36.0",
-    "@eclesia/basic-pg-indexer": "^2.10.0",
-    "@eclesia/core-modules-pg": "^2.10.0",
-    "@eclesia/indexer-engine": "^2.10.0",
+    "@eclesia/basic-pg-indexer": "^2.16.0",
+    "@eclesia/core-modules-pg": "^2.16.0",
+    "@eclesia/indexer-engine": "^2.16.0",
     "bignumber.js": "^9.3.1",
+    "dotenv": "^17.4.2",
     "json-with-bigint": "^3.4.4",
     "pg": "^8.16.3"
   },
@@ -41,12 +45,12 @@
     "@eslint/js": "^9.35.0",
     "@stylistic/eslint-plugin": "^5.3.1",
     "@types/json-bigint": "^1.0.4",
-    "@types/node": "^22.7.5",
+    "@types/node": "^22.19.0",
     "@types/pg": "^8.15.5",
     "copyfiles": "^2.4.1",
     "eslint": "^9.35.0",
     "eslint-plugin-simple-import-sort": "^12.1.1",
-    "tsdown": "^0.15.2",
+    "tsdown": "^0.16.8",
     "tsx": "^4.19.1",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.44.0"

@@ -30,26 +30,23 @@ import Fastify, {
 import {
   chain,
 } from "stream-chain";
-import Parser from "stream-json";
-import Pick from "stream-json/filters/Pick.js";
-import StreamArray from "stream-json/streamers/StreamArray.js";
-import StreamValues from "stream-json/streamers/StreamValues.js";
-import Batch from "stream-json/utils/Batch.js";
-import {
-  v4 as uuidv4,
-} from "uuid";
+import pick from "stream-json/filters/pick.js";
+import parser from "stream-json/parser.js";
+import streamArray from "stream-json/streamers/stream-array.js";
+import streamValues from "stream-json/streamers/stream-values.js";
+import batch from "stream-json/utils/batch.js";
 import * as winston from "winston";
 
 import {
   CONNECT_TIMEOUT_MS,
-  DEFAULT_BATCH_SIZE, DEFAULT_HEALTH_CHECK_PORT, DEFAULT_POLLING_INTERVAL_MS, DEFAULT_PROMETHEUS_PORT, DEFAULT_START_HEIGHT,
-  GENESIS_BATCH_SIZE, PAGINATION_LIMITS, PERIODIC_INTERVALS, QUEUE_DEQUEUE_TIMEOUT_MS, RPC_TIMEOUT_MS,
+  DEFAULT_BATCH_SIZE, DEFAULT_BIND_HOST, DEFAULT_HEALTH_CHECK_PORT, DEFAULT_POLLING_INTERVAL_MS, DEFAULT_PROMETHEUS_PORT, DEFAULT_START_HEIGHT,
+  GENESIS_BATCH_SIZE, IDLE_CHECK_INTERVAL_MS, MAX_FAILURES_PER_BLOCK, PAGINATION_LIMITS, PERIODIC_INTERVALS, RETRY_BASE_DELAY_MS, RETRY_MAX_DELAY_MS, RPC_TIMEOUT_MS,
 } from "../constants.js";
 import {
   EclesiaEmitter,
 } from "../emitter/index.js";
 import {
-  RPCError,
+  ConfigurationError, RPCError,
 } from "../errors/index.js";
 import {
   IndexerMetrics,
@@ -58,11 +55,10 @@ import {
   CircularBuffer,
 } from "../promise-queue/index.js";
 import {
-  BlockQueue, EcleciaIndexerConfig, EmitFunc, MinimalBlockQueue,
-  UUIDEvent, WithHeightAndUUID,
+  BlockQueue, EclesiaIndexerConfig, EmitFunc, MinimalBlockQueue, WithHeightAndUUID,
 } from "../types/index.js";
 import {
-  decodeAttr,
+  decodeAttr, hasBlockEventMode, redactUrl, retryDelay, withTimeout,
 } from "../utils/index.js";
 import {
   validateFilePath, validatePort, validatePositiveInteger, validateUrl,
@@ -74,7 +70,7 @@ export const defaultIndexerConfig = {
   batchSize: DEFAULT_BATCH_SIZE,                      // Process blocks in batches of 500
   modules: [],                                        // No modules enabled by default
   getNextHeight: () => DEFAULT_START_HEIGHT,         // Default height retrieval function
-  logLevel: "info" as EcleciaIndexerConfig["logLevel"], // Default log level
+  logLevel: "info" as EclesiaIndexerConfig["logLevel"], // Default log level
   usePolling: false,                                  // Use WebSocket subscription by default
   pollingInterval: DEFAULT_POLLING_INTERVAL_MS,       // Poll every 5 seconds when polling enabled
   shouldProcessGenesis: () => false,                  // Skip genesis processing by default
@@ -92,9 +88,9 @@ export const defaultIndexerConfig = {
  * Core blockchain indexer that connects to Tendermint RPC and processes blocks
  * Extends EclesiaEmitter to provide event-driven architecture for modules
  */
-export class EcleciaIndexer extends EclesiaEmitter {
+export class EclesiaIndexer extends EclesiaEmitter {
   /** Indexer configuration settings */
-  public config: EcleciaIndexerConfig;
+  public config: EclesiaIndexerConfig;
 
   /** Fastify HTTP server for health checks */
   private fastify: FastifyInstance | null = null;
@@ -146,11 +142,49 @@ export class EcleciaIndexer extends EclesiaEmitter {
   /** Timeout handler for block reception */
   private blockTimeout: NodeJS.Timeout | null = null;
 
+  /** Timer for the next poll in polling mode */
+  private pollTimer: NodeJS.Timeout | null = null;
+
+  /** Bumped on every (re)start and stop so a polling chain from a previous run exits */
+  private pollGeneration = 0;
+
+  /** Bumped on every start() so callbacks left over from a previous run cannot trigger recovery in this one */
+  private runGeneration = 0;
+
+  /**
+   * Rejecters of waits parked in waitForBlockData(). Each entry is removed as soon as its block
+   * arrives, so a healthy run keeps this empty instead of accumulating one entry per block.
+   */
+  private blockWaiters = new Set<(error: Error) => void>();
+
+  /** Pending restart timer */
+  private retryTimer: NodeJS.Timeout | null = null;
+
+  /** Resolves when the indexer has stopped for good: stop() was called, endHeight was reached, or it gave up */
+  private stopped: Promise<void> = Promise.resolve();
+
+  private resolveStopped: () => void = () => {};
+
+  /** Next height the fetcher will request; advances as fetches are enqueued */
+  private nextFetchHeight = 0;
+
+  /** Whether a fetcher loop is active, and for which run */
+  private fetcherRunning = false;
+
+  private fetcherGeneration = 0;
+
+  private fetcherToken = 0;
+
+  /** Height of the block whose processing failed most recently, and how many times in a row */
+  private lastFailedHeight: number | undefined;
+
+  private sameHeightFailures = 0;
+
   /**
    * Creates a new Eclesia indexer instance
    * @param config - Indexer configuration options
    */
-  constructor(config: EcleciaIndexerConfig) {
+  constructor(config: EclesiaIndexerConfig) {
     super();
 
     // Validate required configuration
@@ -182,20 +216,44 @@ export class EcleciaIndexer extends EclesiaEmitter {
       validatePositiveInteger(config.pollingInterval, "pollingInterval");
     }
 
+    // Explicit undefined values (typical when config is assembled from env vars) must not
+    // override the defaults, so drop them before merging
+    const provided = Object.fromEntries(
+      Object.entries(config).filter(([, value]) => value !== undefined),
+    ) as EclesiaIndexerConfig;
     this.config = {
       ...defaultIndexerConfig,
-      ...config,
+      ...provided,
     };
 
-    // Initialize logger first so it can be used by queue error handler
-    const {
-      printf,
-    } = winston.format;
-
-    const eclesiaFormat = printf(({
-      level, message, timestamp,
+    // Structured logging to stdout only: files, rotation and shipping are the deployment's job.
+    // Errors are passed as { error } so their stack survives; the text format prints it under
+    // the message and the json format emits it as a nested object.
+    const errorFormat = winston.format((info) => {
+      const error = info.error;
+      if (error instanceof Error) {
+        info.error = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+        };
+      }
+      else if (error !== undefined && (typeof error !== "object" || error === null)) {
+        info.error = {
+          message: String(error),
+        };
+      }
+      return info;
+    });
+    const textFormat = winston.format.printf(({
+      level, message, timestamp, error,
     }) => {
-      return `${timestamp} [${level.toUpperCase()}]:\t${message}`;
+      const detail = error as {
+        stack?: string
+        message?: string
+      } | undefined;
+      const suffix = detail ? "\n" + (detail.stack ?? detail.message ?? "") : "";
+      return `${timestamp} [${level.toUpperCase()}]:\t${message}${suffix}`;
     });
     this.log = winston.createLogger({
       level: this.config.logLevel,
@@ -203,29 +261,38 @@ export class EcleciaIndexer extends EclesiaEmitter {
         service: "Eclesia Indexer",
       },
       transports: [
-        new winston.transports.File({
-          filename: "error.log",
-          level: "error",
-        }),
-        new winston.transports.File({
-          filename: "combined.log",
-        }),
         new winston.transports.Console({
-          format: winston.format.combine(winston.format.splat(),
-            winston.format.timestamp(),
-            eclesiaFormat,
-            winston.format.colorize({
-              all: true,
-            })),
+          format: this.config.logFormat === "json"
+            ? winston.format.combine(winston.format.splat(),
+              winston.format.timestamp(),
+              errorFormat(),
+              winston.format.json())
+            : winston.format.combine(winston.format.splat(),
+              winston.format.timestamp(),
+              errorFormat(),
+              textFormat,
+              winston.format.colorize({
+                all: true,
+              })),
         }),
       ],
     });
+
+    // cosmjs cannot subscribe to blocks over plain HTTP; that needs a ws:// or wss:// URL.
+    // Switch to polling now instead of failing after several restarts.
+    const protocol = new URL(this.config.rpcUrl).protocol;
+    if (!this.config.usePolling && (protocol === "http:" || protocol === "https:")) {
+      this.log.warn("rpcUrl " + redactUrl(this.config.rpcUrl) + " is HTTP, which cannot deliver block subscriptions; polling every " + this.config.pollingInterval + " ms instead (use a ws:// or wss:// URL for WebSocket mode)");
+      this.config.usePolling = true;
+    }
 
     // Initialize block queue based on minimal or full indexing mode
     // Pass error handler that uses the logger
     const queueErrorHandler = (e: unknown) => {
       this.prometheus?.recordError("rpc");
-      this.log.error("Error enqueueing block data: " + e);
+      this.log.error("Error enqueueing block data", {
+        error: e,
+      });
     };
 
     if (this.config.minimal) {
@@ -239,13 +306,10 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
     this.on("_unhandled",
       (msg) => {
-        if (msg.uuid) {
+        // Guarded: this runs once per unhandled message, and winston formats a record before
+        // the transport drops it by level
+        if (msg.type !== "uuid" && this.log.isVerboseEnabled()) {
           this.log.verbose("Unhandled event: " + msg.type);
-          this.emit("uuid",
-            {
-              status: true,
-              uuid: msg.uuid,
-            });
         }
       });
     if (this.config.enablePrometheus) {
@@ -264,11 +328,13 @@ export class EcleciaIndexer extends EclesiaEmitter {
         ?? (process.env.PROMETHEUS_PORT ? parseInt(process.env.PROMETHEUS_PORT, 10) : DEFAULT_PROMETHEUS_PORT);
       this.prometheusServer.listen({
         port: prometheusPort,
-        host: "0.0.0.0",
+        host: this.config.prometheusHost ?? DEFAULT_BIND_HOST,
       },
       (err) => {
         if (err) {
-          this.log.error("Prometheus error: " + err);
+          this.log.error("Prometheus server error", {
+            error: err,
+          });
           this.prometheus?.recordError("metrics_server");
           this.emit("fatal-error", {
             error: err,
@@ -283,7 +349,8 @@ export class EcleciaIndexer extends EclesiaEmitter {
       });
       this.fastify.get("/health",
         async (_request, reply) => {
-          const code = this.healthCheck.status == "OK"
+          // WAITING means caught up with an idle chain, which is healthy
+          const code = this.healthCheck.status == "OK" || this.healthCheck.status == "WAITING"
             ? 200
             : 503;
           reply.code(code).send(this.healthCheck);
@@ -292,11 +359,13 @@ export class EcleciaIndexer extends EclesiaEmitter {
         ?? (process.env.HEALTH_CHECK_PORT ? parseInt(process.env.HEALTH_CHECK_PORT, 10) : DEFAULT_HEALTH_CHECK_PORT);
       this.fastify.listen({
         port: healthPort,
-        host: "0.0.0.0",
+        host: this.config.healthCheckHost ?? DEFAULT_BIND_HOST,
       },
       (err) => {
         if (err) {
-          this.log.error("Health check server error: " + err);
+          this.log.error("Health check server error", {
+            error: err,
+          });
           this.prometheus?.recordError("health_check_server");
           this.emit("fatal-error", {
             error: err,
@@ -309,6 +378,126 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
   private setStatus(status: string) {
     this.healthCheck.status = status;
+    this.prometheus?.setWaiting(status === "WAITING");
+  }
+
+  /**
+   * Marks the current run for recovery and wakes the main loop if it is parked waiting for a
+   * block. Callbacks left over from a previous run pass their generation and are ignored.
+   */
+  private requestRecovery(reason: string, generation: number = this.runGeneration): void {
+    if (generation !== this.runGeneration) {
+      this.log.debug("Ignoring recovery request from a previous run: " + reason);
+      return;
+    }
+    if (!this.tryToRecover) {
+      this.log.warn("Recovery requested: " + reason);
+    }
+    this.tryToRecover = true;
+    this.wakeBlockWaiters("Recovery requested while waiting for block data");
+  }
+
+  /** Rejects every wait parked in waitForBlockData() */
+  private wakeBlockWaiters(reason: string): void {
+    const waiters = [...this.blockWaiters];
+    this.blockWaiters.clear();
+    for (const reject of waiters) {
+      reject(new RPCError(reason));
+    }
+  }
+
+  /**
+   * Refuses to index a chain other than the configured one. An RPC pool that mixes networks, or
+   * a wrong URL, would otherwise write a different chain's blocks into the database.
+   */
+  private assertChainId(network: string): void {
+    if (this.config.chainId !== undefined && network !== this.config.chainId) {
+      throw new ConfigurationError("RPC serves chain " + network + " but chainId is configured as " + this.config.chainId, {
+        expected: this.config.chainId,
+        actual: network,
+      });
+    }
+  }
+
+  /** Counts consecutive processing failures per block height */
+  private noteBlockFailure(height: number): void {
+    if (height === this.lastFailedHeight) {
+      this.sameHeightFailures++;
+    }
+    else {
+      this.lastFailedHeight = height;
+      this.sameHeightFailures = 1;
+    }
+  }
+
+  /** True once one block has failed maxFailuresPerBlock times in a row */
+  private isStuck(): boolean {
+    return this.lastFailedHeight !== undefined
+      && this.sameHeightFailures >= (this.config.maxFailuresPerBlock ?? MAX_FAILURES_PER_BLOCK);
+  }
+
+  /**
+   * Waits for the next dequeued block but wakes early when recovery or stop is requested, so a
+   * loop parked on an empty queue never waits for a block that will not come.
+   */
+  private waitForBlockData<T>(dequeued: Promise<T>): Promise<T> {
+    if (this.tryToRecover || !this.started) {
+      return Promise.reject(new RPCError("Recovery requested while waiting for block data"));
+    }
+    return new Promise<T>((resolve, reject) => {
+      this.blockWaiters.add(reject);
+      dequeued.then((value) => {
+        this.blockWaiters.delete(reject);
+        resolve(value);
+      },
+      (error) => {
+        this.blockWaiters.delete(reject);
+        reject(error);
+      });
+    });
+  }
+
+  /** (Re)arms the idle check that runs when no block has been announced for a while */
+  private armIdleCheck(): void {
+    if (this.blockTimeout) {
+      clearTimeout(this.blockTimeout);
+    }
+    this.blockTimeout = setTimeout(() => {
+      this.checkLiveness();
+    }, IDLE_CHECK_INTERVAL_MS);
+  }
+
+  /**
+   * Runs when no block has been announced for IDLE_CHECK_INTERVAL_MS. A chain that has stopped
+   * producing blocks (halt, upgrade, slow chain) is not an error: the indexer reports WAITING and
+   * checks again later. Recovery is requested only when the chain has moved on without us, which
+   * means the subscription is dead, or when the RPC cannot be reached at all.
+   */
+  private async checkLiveness(): Promise<void> {
+    if (!this.started) {
+      return;
+    }
+    const generation = this.runGeneration;
+    try {
+      const status = await withTimeout(this.client.status(), RPC_TIMEOUT_MS, new RPCError("RPC status call timed out"));
+      if (!this.started || generation !== this.runGeneration) {
+        return;
+      }
+      const chainHeight = status.syncInfo.latestBlockHeight;
+      if (chainHeight > this.latestHeight) {
+        this.requestRecovery("chain is at " + chainHeight + " but nothing was announced since " + this.latestHeight, generation);
+        return;
+      }
+      this.log.info("No new block for " + IDLE_CHECK_INTERVAL_MS / 1000 + " s, chain height is still " + chainHeight);
+      this.setStatus("WAITING");
+      this.armIdleCheck();
+    }
+    catch (e) {
+      this.log.error("Liveness check failed", {
+        error: e,
+      });
+      this.requestRecovery("RPC unreachable during liveness check", generation);
+    }
   }
 
   private blockListener = {
@@ -318,6 +507,17 @@ export class EcleciaIndexer extends EclesiaEmitter {
       }
     }) => {
       this.newBlockReceived(data.header.height);
+    },
+    error: (error: unknown) => {
+      this.log.error("Block subscription error", {
+        error,
+      });
+      this.requestRecovery("block subscription errored");
+    },
+    complete: () => {
+      if (this.started) {
+        this.requestRecovery("block subscription closed by the node");
+      }
     },
   };
 
@@ -344,24 +544,47 @@ export class EcleciaIndexer extends EclesiaEmitter {
         catch (_e) { /* empty */ }
         this.log.verbose("Disconnected from RPC");
       }
-      const connectTimeoutPromise = new Promise<ReturnType<typeof connectComet>>((resolve, reject) => {
-        setTimeout(reject, CONNECT_TIMEOUT_MS, new RPCError("RPC connection timed out"));
-      });
-      this.log.info("Attempting to connected to RPC: " + this.config.rpcUrl);
-      this.client = await Promise.race([connectComet(this.config.rpcUrl), connectTimeoutPromise]);
-      await Promise.race([this.client.status(), connectTimeoutPromise]);
+      this.log.info("Attempting to connect to RPC: " + redactUrl(this.config.rpcUrl));
+      this.client = await this.connectWithTimeout();
+      await withTimeout(this.client.status(), CONNECT_TIMEOUT_MS, new RPCError("RPC status call timed out"));
       this.log.info("Connected to RPC for ad hoc queries");
-      this.blockClient = await Promise.race([connectComet(this.config.rpcUrl), connectTimeoutPromise]);
-      await Promise.race([this.blockClient.status(), connectTimeoutPromise]);
+      this.blockClient = await this.connectWithTimeout();
+      await withTimeout(this.blockClient.status(), CONNECT_TIMEOUT_MS, new RPCError("RPC status call timed out"));
       this.log.info("Connected to RPC for block & validator info");
 
       return true;
     }
     catch (error) {
-      this.log.error("RPC connection error: " + error);
+      this.log.error("RPC connection error", {
+        error,
+      });
       this.prometheus?.recordError("rpc");
-      this.tryToRecover = true;
+      this.requestRecovery("RPC connection failed");
       return false;
+    }
+  }
+
+  /**
+   * Opens one CometBFT client with its own timeout. If the timeout wins, the client
+   * that may still arrive is disconnected so a slow RPC never leaks a socket.
+   */
+  private async connectWithTimeout(): Promise<CometClient> {
+    let timedOut = false;
+    const pending = connectComet(this.config.rpcUrl);
+    pending.then((client) => {
+      if (timedOut) {
+        try {
+          client.disconnect();
+        }
+        catch (_e) { /* empty */ }
+      }
+    }).catch(() => { /* surfaced through the race below */ });
+    try {
+      return await withTimeout(pending, CONNECT_TIMEOUT_MS, new RPCError("RPC connection timed out"));
+    }
+    catch (e) {
+      timedOut = true;
+      throw e;
     }
   }
 
@@ -373,7 +596,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
         }
       }
       catch (e) {
-        this.log.error("Failed to initialize indexer: " + e);
+        this.log.error("Failed to initialize indexer", {
+          error: e,
+        });
 
         this.prometheus?.recordError("init_error");
         this.setStatus("FAILED");
@@ -384,9 +609,14 @@ export class EcleciaIndexer extends EclesiaEmitter {
           if (this.config.genesisPath) {
             await this.parseGenesis();
           }
+          else {
+            this.log.warn("shouldProcessGenesis() returned true but no genesisPath is configured, skipping genesis import");
+          }
         }
         catch (e) {
-          this.log.error("Failed to parse genesis: " + e);
+          this.log.error("Failed to parse genesis", {
+            error: e,
+          });
 
           this.prometheus?.recordError("genesis_error");
           this.setStatus("FAILED");
@@ -397,8 +627,46 @@ export class EcleciaIndexer extends EclesiaEmitter {
     }
   }
 
-  public stop() {
+  /**
+   * Stops the indexer and releases everything that would keep the process alive:
+   * the block subscription, polling and inactivity timers, both RPC clients and the
+   * health and metrics servers. Safe to call more than once.
+   */
+  public async stop(): Promise<void> {
     this.started = false;
+    this.resolveStopped();
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    this.wakeBlockWaiters("Indexer stopped while waiting for block data");
+    this.stopPolling();
+    if (this.blockTimeout) {
+      clearTimeout(this.blockTimeout);
+      this.blockTimeout = null;
+    }
+    if (this.subscription) {
+      try {
+        this.subscription.removeListener(this.blockListener);
+      }
+      catch (_e) { /* empty */ }
+      this.subscription = null;
+    }
+    for (const client of [this.client, this.blockClient]) {
+      try {
+        client?.disconnect();
+      }
+      catch (_e) { /* empty */ }
+    }
+    const servers = [this.fastify, this.prometheusServer];
+    this.fastify = null;
+    this.prometheusServer = null;
+    await Promise.all(servers.map(server => server?.close().catch((e: unknown) => {
+      this.log.warn("Error closing HTTP server", {
+        error: e,
+      });
+    })));
+    this.log.info("Indexer stopped");
   }
 
   private clearBlockQueue() {
@@ -426,18 +694,15 @@ export class EcleciaIndexer extends EclesiaEmitter {
           ? this.client.subscribeNewBlock()
           : null;
       }
-      const statusPromise: Promise<StatusResponse> = new Promise((resolve, reject) => {
-        setTimeout(reject,
-          RPC_TIMEOUT_MS,
-          new RPCError("RPC status call timed out"));
-      });
-      const status = await Promise.race([this.client.status(), statusPromise]);
+      const status: StatusResponse = await withTimeout(this.client.status(), RPC_TIMEOUT_MS, new RPCError("RPC status call timed out"));
+      this.assertChainId(status.nodeInfo.network);
       this.latestHeight = status.syncInfo.latestBlockHeight;
-      this.log.info("Current chain height: " + this.latestHeight);
+      this.log.info("Connected to " + status.nodeInfo.network + ", current chain height: " + this.latestHeight);
 
       this.heightToProcess = await this.config.getNextHeight();
+      this.nextFetchHeight = this.heightToProcess;
       if (this.config.usePolling) {
-        this.pollForBlock();
+        this.startPolling();
       }
       else {
         if (this.subscription) {
@@ -448,68 +713,92 @@ export class EcleciaIndexer extends EclesiaEmitter {
           throw new Error("Could not subscribe to new blocks");
         }
       }
+      // A subscription that never delivers anything must still be noticed
+      this.armIdleCheck();
     }
     catch (e) {
-      this.log.error("Failed to set up block listening: " + e);
+      this.log.error("Failed to set up block listening", {
+        error: e,
+      });
       this.prometheus?.recordError("rpc");
       this.setStatus("FAILED");
       throw e;
     }
   }
 
+  /**
+   * Resolves once the indexer has stopped for good: stop() was called, endHeight was reached, or
+   * a fatal-error was emitted. Restarts with backoff do not resolve it. Use it to keep a caller
+   * waiting for the whole run rather than for the first loop exit.
+   */
+  public whenStopped(): Promise<void> {
+    return this.stopped;
+  }
+
   public async start() {
+    if (!this.started) {
+      // A fresh run (not a restart after backoff) gets a fresh completion promise
+      this.stopped = new Promise<void>((resolve) => {
+        this.resolveStopped = resolve;
+      });
+    }
     this.started = true;
+    this.runGeneration++;
+    const generation = this.runGeneration;
+    this.tryToRecover = false;
+    this.blockWaiters.clear();
     this.clearBlockQueue();
     await this.initialize();
     try {
       await this.setupBlockListening();
       this.log.debug("Starting main processing loop");
-      this.tryToRecover = false;
       this.fetcher().catch((e) => {
         this.setStatus("FAILED");
         this.prometheus?.recordError("rpc");
-        throw new Error("Error in fetching service: " + e);
+        this.log.error("Error in fetching service", {
+          error: e,
+        });
+        this.requestRecovery("fetcher failed", generation);
       });
     }
-    catch (_e) {
-      // Continue and attempt to recover
+    catch (e) {
+      this.requestRecovery("block listening setup failed: " + e, generation);
     }
 
-    while (
-      this.started // break out when stopped
-      && !this.tryToRecover // break out for recoverable errors
-      && (this.config.endHeight === undefined || this.heightToProcess <= this.config.endHeight) // break out if end height configured and reached
-      && this.blockQueue.size() > 0  // break out if no blocks to process
-    ) {
-      // await the dequeued promise is essentially awaiting fetched data for that block
+    let lastProcessed: number | undefined;
+    while (this.started && !this.tryToRecover) {
+      let txOpen = false;
+      let failingHeight: number | undefined;
       try {
         this.prometheus?.updateRetryCount(this.retryCount);
-        // Index block inside a db transaction to ensure data consistency
-        await this.config.beginTransaction();
-        this.log.silly("Started db tx");
-        let height, timestamp;
+        if (this.blockQueue.synced && this.blockQueue.size() <= 1) {
+          // Only the sentinel is queued: we are at the chain tip. Waiting here is normal and can
+          // last hours during a halt or an upgrade, so no transaction is held while we wait.
+          this.setStatus("WAITING");
+        }
+        let height: number;
+        let timestamp: string;
 
         // Main block processing (minimal)
         if (this.isMinimal(this.blockQueue)) {
-          const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((resolve, reject) => {
-            setTimeout(reject, QUEUE_DEQUEUE_TIMEOUT_MS, []);
-          });
-          const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
+          const toProcess = await this.waitForBlockData(this.blockQueue.dequeue());
           this.log.silly("Retrieved block data");
           if (!toProcess || !toProcess[0] || !toProcess[1]) {
             throw new RPCError("Could not fetch block(minimal)");
           }
           height = toProcess[0].block.header.height;
+          failingHeight = height;
           timestamp = toRfc3339WithNanoseconds(toProcess[0].block.header.time);
+          // Index block inside a db transaction to ensure data consistency
+          await this.config.beginTransaction();
+          txOpen = true;
+          this.log.silly("Started db tx");
           await this.processBlock(toProcess[0],
             toProcess[1]);
         }
         // Main block processing (full)
         else {
-          const timeoutPromise: ReturnType<typeof this.blockQueue.dequeue> = new Promise((resolve, reject) => {
-            setTimeout(reject, QUEUE_DEQUEUE_TIMEOUT_MS, []);
-          });
-          const toProcess = await Promise.race([this.blockQueue.dequeue(), timeoutPromise]);
+          const toProcess = await this.waitForBlockData(this.blockQueue.dequeue());
           this.log.silly("Retrieved block data");
           if (!toProcess || !toProcess[0] || !toProcess[1] || !toProcess[2]) {
             throw new RPCError("Could not fetch block(full)");
@@ -517,7 +806,11 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
           this.log.silly("Decoded block");
           height = toProcess[0].block.header.height;
+          failingHeight = height;
           timestamp = toRfc3339WithNanoseconds(toProcess[0].block.header.time);
+          await this.config.beginTransaction();
+          txOpen = true;
+          this.log.silly("Started db tx");
           await this.processBlock(toProcess[0],
             toProcess[1],
             QueryValidatorsResponse.decode(toProcess[2]).validators);
@@ -551,28 +844,50 @@ export class EcleciaIndexer extends EclesiaEmitter {
         this.log.silly("Handled periodic events");
 
         await this.config.endTransaction(true);
+        txOpen = false;
+        lastProcessed = height;
+        this.lastFailedHeight = undefined;
+        this.sameHeightFailures = 0;
 
         this.log.silly("Committed db tx");
       }
       catch (e) {
+        if (txOpen) {
+          try {
+            await this.config.endTransaction(false);
+          }
+          catch (dbe) {
+            this.prometheus?.recordError("database");
+            this.log.error("Error ending transaction", {
+              error: dbe,
+            });
+          }
+        }
+        if (!this.started) {
+          // stop() woke us up; nothing failed
+          break;
+        }
+        if (failingHeight !== undefined) {
+          // The data was there and processing failed: count it against this block
+          this.noteBlockFailure(failingHeight);
+        }
         // any error here is likely recoverable (e.g. RPC timeout, DB error)
         this.prometheus?.recordError("block");
-        this.log.error("Block processing error: " + e);
+        this.log.error("Block processing error", {
+          error: e,
+        });
         this.setStatus("FAILED");
-        try {
-          await this.config.endTransaction(false);
-        }
-        catch (dbe) {
-          this.prometheus?.recordError("database");
-          this.log.error("Error ending transaction. Must be a DB error: " + dbe);
-        }
-        this.tryToRecover = true;
-        // Exit processing loop to attempt recovery
+        this.requestRecovery("block processing failed", generation);
         break;
       }
       // Reset retry count and status on successful block processing
       this.retryCount = 0;
       this.setStatus("OK");
+      if (this.config.endHeight !== undefined && lastProcessed !== undefined && lastProcessed >= this.config.endHeight) {
+        this.log.info("Reached configured end height " + this.config.endHeight + ". Stopping indexer.");
+        await this.stop();
+        return;
+      }
     }
 
     // Normal exit from processing loop
@@ -580,74 +895,70 @@ export class EcleciaIndexer extends EclesiaEmitter {
       this.log.info("Indexer manually stopped.");
       return;
     }
-    if (this.config.endHeight !== undefined && this.heightToProcess >= this.config.endHeight!) {
-      this.log.info("Reached configured end height. Stopping indexer.");
-      this.stop();
+
+    // A block that keeps failing after its data was fetched is a bug or bad data, not an outage.
+    // Give up loudly instead of retrying it forever.
+    if (this.isStuck()) {
+      const height = this.lastFailedHeight;
+      this.log.error("Block " + height + " failed " + this.sameHeightFailures + " times in a row. This is a deterministic failure in a handler or the data, not an outage. Giving up.");
+      this.started = false;
+      this.emit("fatal-error", {
+        error: new Error("Block " + height + " failed " + this.sameHeightFailures + " times in a row"),
+        message: "Block processing is stuck",
+        retryCount: this.retryCount,
+        height,
+      });
+      this.resolveStopped();
       return;
     }
 
-    // Abnormal exit
-    if (this.retryCount < 3) {
-      this.log.debug("Indexer retryCount: " + this.retryCount);
-      this.retryCount++;
-      this.log.info("Indexer is restarting");
-      // Attempt recovery after brief delay
-      setTimeout(() => this.start(),
-        this.retryCount * 5000);
-    }
-    else {
-      this.log.info("Indexer failed too many times. Exiting.");
+    // Abnormal exit: restart with exponential backoff. Retries are unlimited unless maxRetries
+    // is configured, because an RPC or database outage of any length must not kill the indexer.
+    this.retryCount++;
+    if (this.config.maxRetries !== undefined && this.retryCount > this.config.maxRetries) {
+      this.log.error("Indexer failed " + this.retryCount + " times in a row, giving up (maxRetries=" + this.config.maxRetries + ")");
+      this.started = false;
       this.emit("fatal-error", {
         error: new Error("Max retry attempts exceeded"),
         message: "Indexer failed too many times",
         retryCount: this.retryCount,
       });
+      this.resolveStopped();
+      return;
     }
+    const delay = retryDelay(this.retryCount, RETRY_BASE_DELAY_MS, RETRY_MAX_DELAY_MS);
+    this.log.warn("Indexer is restarting in " + delay / 1000 + " s (attempt " + this.retryCount + ")");
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.start().catch((e) => {
+        this.log.error("Restart failed", {
+          error: e,
+        });
+      });
+    }, delay);
   }
 
+  /**
+   * Emits an event and waits for its handlers. Handlers run one after another in registration
+   * order: they share one database connection and one transaction, so interleaving them at
+   * await points would let two handlers read and write the same rows in an unpredictable order,
+   * and a failure in one would leave the others mid-flight while the block is rolled back. The
+   * first rejection propagates and stops the remaining handlers.
+   */
   public asyncEmit: EmitFunc<keyof WithHeightAndUUID<EventMap>> = async (
     type,
     event,
   ) => {
-    event.uuid = uuidv4();
-
-    /*
-     * More than 1 listener can be registered for an event type
-     * Fortunately these are all set up during module init() so we have a consistent count
-     * so we can count responses to resolve when complete
-     * values are irrelevant as promise resolution is only used for flow control
-     */
-    let listenerCount = this.handled.get(type);
-    if (!listenerCount) {
-      // Setting listenerCount to 1 (the unhandled listener)
-      listenerCount = 1;
+    const handlers = this.handlersFor(type);
+    if (handlers.length === 0) {
+      // Same routing as emit(): the _unhandled listener logs it at verbose level
+      this.emit(type,
+        event);
+      return;
     }
-    let listenersResponded = 0;
-    const prom = new Promise<void>((resolve, reject) => {
-      const returnFunc = (ev: UUIDEvent) => {
-        if (ev.uuid == event.uuid) {
-          if (ev.status) {
-            listenersResponded++;
-            if (listenersResponded == listenerCount) {
-              // All listeners have done their thing so we can remove listener, resolve and continue execution
-              this.off("uuid",
-                returnFunc);
-              resolve();
-            }
-          }
-          else {
-            // At least 1 listener is reporting an error. Reject and handle exception at the original asyncEmit location
-            reject(ev.error);
-          }
-        }
-      };
-      this.on("uuid",
-        returnFunc);
-    });
-    this.emit(type,
-      event);
-
-    return prom;
+    for (const handler of handlers) {
+      await handler(event);
+    }
   };
 
   private async processBlock(block: BlockResponse, block_results: BlockResultsResponse | BlockResultsResponse38, validators?: Validator[]) {
@@ -679,8 +990,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
     let beginBlockEvents: readonly Event[] | readonly Event38[];
     let endBlockEvents: readonly Event[] | readonly Event38[];
     if ((block_results as BlockResultsResponse38).finalizeBlockEvents) {
-      beginBlockEvents = (block_results as BlockResultsResponse38).finalizeBlockEvents.filter(x => x.attributes.find(a => decodeAttr(a.key) == "mode" && decodeAttr(a.value) == "begin_block")) as readonly Event38[];
-      endBlockEvents = (block_results as BlockResultsResponse38).finalizeBlockEvents.filter(x => x.attributes.find(a => decodeAttr(a.key) == "mode" && decodeAttr(a.value) == "end_block")) as readonly Event38[];
+      // Cosmos SDK 0.50+ tags each finalize_block event with mode=BeginBlock / mode=EndBlock (baseapp.go)
+      beginBlockEvents = (block_results as BlockResultsResponse38).finalizeBlockEvents.filter(x => hasBlockEventMode(x, "BeginBlock")) as readonly Event38[];
+      endBlockEvents = (block_results as BlockResultsResponse38).finalizeBlockEvents.filter(x => hasBlockEventMode(x, "EndBlock")) as readonly Event38[];
     }
     else {
       beginBlockEvents = (block_results as BlockResultsResponse).beginBlockEvents;
@@ -736,9 +1048,19 @@ export class EcleciaIndexer extends EclesiaEmitter {
       let events: Array<{
         msg_index?: number
         events: (Event | Event38)[]
-      }> = txlog
-        ? JSON.parse(txlog)
-        : [];
+      }> = [];
+      if (txlog) {
+        try {
+          const parsed = JSON.parse(txlog);
+          if (Array.isArray(parsed)) {
+            events = parsed;
+          }
+        }
+        catch (_e) {
+          // Not every chain writes a JSON log; the msg_index attributes below cover those
+          this.log.silly("Tx log is not JSON, using msg_index attributes instead");
+        }
+      }
       if (events.length == 0) {
         const eventsToAdd: typeof events = [];
         this.log.silly("No events found in tx log. Parsing events for msg_index");
@@ -767,11 +1089,13 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
       if (msgs) {
         for (let i = 0; i < msgs.length; i++) {
-          this.log.silly("Indexer broadcasting msg for handling: " + msgs[i].typeUrl);
+          if (this.log.isSillyEnabled()) {
+            this.log.silly("Indexer broadcasting msg for handling: " + msgs[i].typeUrl);
+          }
           const msgevents
             = msgs.length > 1
               ? events.find(x => x.msg_index == i)?.events
-              : events[0].events;
+              : events[0]?.events ?? [];
           await this.asyncEmit(msgs[i].typeUrl as never,
             {
               value: {
@@ -785,7 +1109,9 @@ export class EcleciaIndexer extends EclesiaEmitter {
             const authzMsgs = MsgExec.decode(msgs[i].value).msgs;
             if (authzMsgs) {
               for (let r = 0; r < authzMsgs.length; r++) {
-                this.log.silly("Indexer broadcasting msg for handling: " + authzMsgs[r].typeUrl);
+                if (this.log.isSillyEnabled()) {
+                  this.log.silly("Indexer broadcasting msg for handling: " + authzMsgs[r].typeUrl);
+                }
                 const authzMsgEvents = msgevents?.reduce((events, evt) => {
                   if (evt.attributes.filter(x => decodeAttr(x.key) == "authz_msg_index" && decodeAttr(x.value) == "" + r).length > 0) {
                     events.push(evt);
@@ -823,84 +1149,94 @@ export class EcleciaIndexer extends EclesiaEmitter {
     this.prometheus?.updateBlockMetrics(height, this.latestHeight, this.blockQueue.size());
   }
 
+  /**
+   * Fetches every height from nextFetchHeight up to latestHeight, waiting for queue space
+   * before each fetch. Serves the initial catch-up and live blocks alike: a new announcement
+   * only moves latestHeight and starts this loop if it is not already running, so bursts and
+   * skipped announcements are handled by the same code and the queue can never overflow.
+   */
   private async fetcher() {
-    for (let i = this.heightToProcess; i <= this.latestHeight; i++) {
-      // If some other async process triggers recovery, exit the fetching loop
-      if (this.tryToRecover) {
-        this.log.verbose("Exiting fetcher loop. Attempting to recover indexer");
-        break;
-      }
-      this.log.debug("Fetching: " + i);
-      try {
-        // Main fetching logic for minimal indexer
-        if (this.isMinimal(this.blockQueue)) {
-          const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse]> = new Promise((resolve, reject) => {
-            setTimeout(reject,
-              RPC_TIMEOUT_MS,
-              false);
-          });
-          // We do not await here so that multiple fetches can be in-flight
-          const toIndex = Promise.race([Promise.all([this.blockClient.block(i) as Promise<BlockResponse>, this.blockClient.blockResults(i) as Promise<BlockResultsResponse>]), timeoutPromise]).catch((e) => {
-            this.log.error("Error fetching block: " + i + " : " + e);
-            this.prometheus?.recordError("rpc");
-            this.tryToRecover = true;
-            return Promise.resolve([]);
-          }) as Promise<[BlockResponse, BlockResultsResponse]>;
-          this.blockQueue.enqueue(toIndex);
+    if (this.fetcherRunning && this.fetcherGeneration === this.runGeneration) {
+      return;
+    }
+    const generation = this.runGeneration;
+    const token = ++this.fetcherToken;
+    this.fetcherRunning = true;
+    this.fetcherGeneration = generation;
+    try {
+      while (
+        this.nextFetchHeight <= this.latestHeight
+        && (this.config.endHeight === undefined || this.nextFetchHeight <= this.config.endHeight)
+      ) {
+        // If some other async process triggers recovery, exit the fetching loop
+        if (this.tryToRecover || !this.started || generation !== this.runGeneration) {
+          this.log.verbose("Exiting fetcher loop. Attempting to recover indexer");
+          break;
         }
-        else {
+        const i = this.nextFetchHeight;
+        this.log.debug("Fetching: " + i);
+        try {
           // Main fetching logic for minimal indexer
-          const timeoutPromise: Promise<[BlockResponse, BlockResultsResponse, Uint8Array]> = new Promise((resolve, reject) => {
-            setTimeout(reject,
-              RPC_TIMEOUT_MS,
-              false);
-          });
-          const q = QueryValidatorsRequest.fromPartial({
-            pagination: {
-              limit: PAGINATION_LIMITS.VALIDATORS,
-            },
-          });
-          const vals = QueryValidatorsRequest.encode(q).finish();
-          // We do not await here so that multiple fetches can be in-flight
-          const toIndex = Promise.race([
-            Promise.all([
-              this.blockClient.block(i) as Promise<BlockResponse>,
-              this.blockClient.blockResults(i) as Promise<BlockResultsResponse>,
-              this.callABCI("/cosmos.staking.v1beta1.Query/Validators",
-                vals,
-                i,
-                false),
-            ]),
-            timeoutPromise,
-          ]).catch((e) => {
-            this.log.error("Error fetching block: " + i + " : " + e);
-            this.tryToRecover = true;
-            return Promise.resolve([]);
-          }) as Promise<[BlockResponse, BlockResultsResponse, Uint8Array]>;
-          this.blockQueue.enqueue(toIndex);
+          if (this.isMinimal(this.blockQueue)) {
+            // We do not await here so that multiple fetches can be in-flight
+            const toIndex = withTimeout(Promise.all([this.blockClient.block(i) as Promise<BlockResponse>, this.blockClient.blockResults(i) as Promise<BlockResultsResponse>]), RPC_TIMEOUT_MS, new RPCError("Timed out fetching block " + i)).catch((e) => {
+              this.log.error("Error fetching block " + i, {
+                error: e,
+              });
+              this.prometheus?.recordError("rpc");
+              this.requestRecovery("fetch failed for block " + i, generation);
+              return Promise.resolve([]);
+            }) as Promise<[BlockResponse, BlockResultsResponse]>;
+            this.blockQueue.enqueue(toIndex);
+          }
+          else {
+            // Full indexer: block, block results and the complete validator set
+            const toIndex = withTimeout(Promise.all([this.blockClient.block(i) as Promise<BlockResponse>, this.blockClient.blockResults(i) as Promise<BlockResultsResponse>, this.fetchValidatorSet(i)]), RPC_TIMEOUT_MS, new RPCError("Timed out fetching block " + i)).catch((e) => {
+              this.log.error("Error fetching block " + i, {
+                error: e,
+              });
+              this.prometheus?.recordError("rpc");
+              this.requestRecovery("fetch failed for block " + i, generation);
+              return Promise.resolve([]);
+            }) as Promise<[BlockResponse, BlockResultsResponse, Uint8Array]>;
+            this.blockQueue.enqueue(toIndex);
+          }
         }
+        catch (e) {
+          this.log.error("Fetching error", {
+            error: e,
+          });
+          break;
+        }
+        this.nextFetchHeight = i + 1;
+        // Resolves immediately while the queue has room, otherwise when the processor dequeues
+        await this.blockQueue.continue();
       }
-      catch (e) {
-        this.log.error("Fetching error: " + e);
-        break;
-      }
-      await this.blockQueue.continue();
-      if (this.tryToRecover) {
-        this.log.verbose("Exiting fetcher loop. Attempting to recover indexer");
-        break;
+      // Caught up with everything announced so far
+      if (!this.tryToRecover && this.started && generation === this.runGeneration && !this.blockQueue.synced) {
+        this.blockQueue.setSynced();
+        this.log.info("Synced to latest height");
       }
     }
-    // If we exit the fetching loop without errors, we are synced
-    if (!this.tryToRecover) {
-      this.blockQueue.setSynced();
-      this.log.info("Synced to latest height");
+    finally {
+      if (this.fetcherToken === token) {
+        this.fetcherRunning = false;
+      }
     }
   }
 
+  /**
+   * Runs an ABCI query. A transport failure (RPC down, timeout, empty reply) requests a recovery.
+   * A reply with a non-zero code is the chain answering "no" (pruned height, unknown path, bad
+   * key): it is thrown as an RPCError with the code and log, and no recovery is requested for
+   * ad-hoc queries, so modules can catch it. Block-pipeline queries reject into the fetcher,
+   * which requests recovery itself.
+   */
   public async callABCI(path: string, data: Uint8Array, height?: number, adHoc: boolean = true): Promise<Uint8Array> {
+    let abciq;
+    const endTimer = this.prometheus?.timeRpcCall(path) ?? void 0;
     try {
-      const endTimer = this.prometheus?.timeRpcCall(path) ?? void 0;
-      const abciq = await
+      abciq = await
       (adHoc
         ? this.client
         : this.blockClient).abciQuery({
@@ -908,104 +1244,130 @@ export class EcleciaIndexer extends EclesiaEmitter {
         data,
         height: height,
       });
-      endTimer?.();
-      if (abciq) {
-        return abciq.value;
-      }
-      else {
-        this.tryToRecover = true;
-        this.setStatus("FAILED");
-        this.prometheus?.recordError("rpc");
-        throw new Error("RPC not responding. Query at: " + path);
-      }
     }
-    catch (_e) {
-      this.tryToRecover = true;
+    catch (e) {
       this.setStatus("FAILED");
-      throw new Error("RPC not responding. Query at: " + path);
+      this.prometheus?.recordError("rpc");
+      this.requestRecovery("ABCI query failed for " + path);
+      throw new RPCError("RPC not responding. Query at: " + path + " (" + e + ")");
     }
+    finally {
+      endTimer?.();
+    }
+    if (!abciq) {
+      this.setStatus("FAILED");
+      this.prometheus?.recordError("rpc");
+      this.requestRecovery("empty ABCI response for " + path);
+      throw new RPCError("RPC not responding. Query at: " + path);
+    }
+    if (abciq.code) {
+      // Previously an error reply decoded as an empty result (for example zero validators)
+      this.prometheus?.recordError("rpc");
+      throw new RPCError("ABCI query " + path + " failed with code " + abciq.code + (abciq.log ? ": " + abciq.log : ""));
+    }
+    return abciq.value;
+  }
+
+  /**
+   * Fetches the complete validator set at a height, following pagination, and returns it
+   * re-encoded as a single QueryValidatorsResponse so the block queue payload keeps its shape.
+   * Chains with more validators than one page (1000) were silently truncated before.
+   */
+  private async fetchValidatorSet(height: number): Promise<Uint8Array> {
+    const validators: Validator[] = [];
+    let key: Uint8Array | undefined;
+    do {
+      const request = QueryValidatorsRequest.fromPartial({
+        pagination: key
+          ? {
+            limit: PAGINATION_LIMITS.VALIDATORS,
+            key,
+          }
+          : {
+            limit: PAGINATION_LIMITS.VALIDATORS,
+          },
+      });
+      const page = QueryValidatorsResponse.decode(
+        await this.callABCI("/cosmos.staking.v1beta1.Query/Validators", QueryValidatorsRequest.encode(request).finish(), height, false),
+      );
+      validators.push(...page.validators);
+      key = page.pagination?.nextKey && page.pagination.nextKey.length > 0 ? page.pagination.nextKey : undefined;
+    } while (key);
+    return QueryValidatorsResponse.encode(QueryValidatorsResponse.fromPartial({
+      validators,
+    })).finish();
   }
 
   private newBlockReceived(height: number): void {
-    if (this.blockTimeout) {
-      clearTimeout(this.blockTimeout);
-    }
-    this.blockTimeout = setTimeout(() => {
-      this.tryToRecover = true;
-    }, 30000);
+    this.armIdleCheck();
     this.log.info("Received new block: %d",
       height);
-    if (height == this.latestHeight) {
+    if (height <= this.latestHeight) {
+      // Re-announced, or from a lagging node behind a load balancer: never move backwards
       return;
     }
-    // If we are synced, add to end of queue
-    if (this.blockQueue.synced && !this.tryToRecover) {
-      this.latestHeight = height;
-      if (this.blockQueue.size() + 1 == this.config.batchSize) {
-        this.prometheus?.recordError("block");
-        this.log.error("Block queue is full. Cannot add new block");
-        this.tryToRecover = true;
-        return;
-      }
-      try {
-        if (this.isMinimal(this.blockQueue)) {
-          this.blockQueue.enqueue(Promise.all([this.client.block(height) as Promise<BlockResponse>, this.client.blockResults(height) as Promise<BlockResultsResponse>]).catch((e) => {
-            this.log.error("Error fetching block: " + height + " : " + e);
-
-            return Promise.resolve([]);
-          }) as Promise<[BlockResponse, BlockResultsResponse]>);
-        }
-        else {
-          const q = QueryValidatorsRequest.fromPartial({
-            pagination: {
-              limit: 1000n,
-            },
-          });
-          const vals = QueryValidatorsRequest.encode(q).finish();
-          this.blockQueue.enqueue(Promise.all([
-            this.client.block(height) as Promise<BlockResponse>,
-            this.client.blockResults(height) as Promise<BlockResultsResponse>,
-            this.callABCI("/cosmos.staking.v1beta1.Query/Validators",
-              vals,
-              height,
-              false),
-          ]).catch((e) => {
-            this.log.error("Error fetching block: " + height + " : " + e);
-            return Promise.resolve([]);
-          }) as Promise<[BlockResponse, BlockResultsResponse, Uint8Array]>);
-        }
-      }
-      catch (e) {
-        this.log.error("New Block Received error: " + e);
-      }
+    this.latestHeight = height;
+    if (this.tryToRecover || !this.started) {
+      return;
     }
-    else {
-      this.latestHeight = height;
+    // The fetcher requests every height up to latestHeight and waits for queue space as it
+    // goes, so a burst of blocks or an announcement that skipped heights is handled exactly
+    // like the initial catch-up. Nothing to do if it is already running.
+    this.fetcher().catch((e) => {
+      this.log.error("Error in fetching service", {
+        error: e,
+      });
+      this.requestRecovery("fetcher failed");
+    });
+  }
+
+  /** Starts a single polling chain, retiring any chain left over from a previous run */
+  private startPolling(): void {
+    this.stopPolling();
+    const generation = ++this.pollGeneration;
+    this.pollForBlock(generation);
+  }
+
+  private stopPolling(): void {
+    this.pollGeneration++;
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
     }
   }
 
-  private async pollForBlock() {
+  private async pollForBlock(generation: number) {
+    if (!this.started || generation !== this.pollGeneration) {
+      return;
+    }
     try {
       const status = await this.client.status();
-      if (status.syncInfo.latestBlockHeight > this.latestHeight) {
-        while (this.latestHeight < status.syncInfo.latestBlockHeight) {
-          this.newBlockReceived(this.latestHeight + 1);
-        }
+      // A restart or stop may have happened while waiting on the RPC
+      if (!this.started || generation !== this.pollGeneration) {
+        return;
       }
-      setTimeout(() => {
-        this.pollForBlock();
-      },
-      this.config.pollingInterval);
+      if (status.syncInfo.latestBlockHeight > this.latestHeight) {
+        this.newBlockReceived(status.syncInfo.latestBlockHeight);
+      }
     }
     catch (e) {
-      this.log.error("Error polling for new block: " + e);
-      this.tryToRecover = true;
+      this.log.error("Error polling for new block", {
+        error: e,
+      });
+      this.prometheus?.recordError("rpc");
+      this.requestRecovery("polling failed");
+      // Recovery restarts polling from setupBlockListening
+      return;
     }
+    this.pollTimer = setTimeout(() => {
+      this.pollForBlock(generation);
+    },
+    this.config.pollingInterval);
   }
 
-  private readGenesis(): Parser.Parser {
+  private readGenesis(): fs.ReadStream {
     if (this.config.genesisPath) {
-      return fs.createReadStream(this.config.genesisPath).pipe(Parser.parser());
+      return fs.createReadStream(this.config.genesisPath);
     }
     else {
       throw new Error("Genesis path not set");
@@ -1016,7 +1378,7 @@ export class EcleciaIndexer extends EclesiaEmitter {
     const readPromise = new Promise<boolean>((resolve, reject) => {
       try {
         const filters = path.split(".");
-        const pickers = filters.map(filter => Pick.pick({
+        const pickers = filters.map(filter => pick({
           filter,
         }));
         let counter = 0;
@@ -1036,13 +1398,16 @@ export class EcleciaIndexer extends EclesiaEmitter {
             await this.config.endTransaction(true);
             await this.config.beginTransaction();
           }
+          // Pass the chunk on so the "data" listener below can count what was processed
+          return data;
         };
 
         chain([
           this.readGenesis(),
+          parser(),
           ...pickers,
-          StreamArray.streamArray(),
-          Batch.batch({
+          streamArray(),
+          batch({
             batchSize: GENESIS_BATCH_SIZE,
           }),
           chunkProcessor,
@@ -1057,11 +1422,20 @@ export class EcleciaIndexer extends EclesiaEmitter {
             () => {
               this.log.info(`Processed ${counter} entries in ${chunkCounter} chunks`);
               resolve(true);
+            })
+          // stream-chain re-emits parser and processor errors here; without a listener Node
+          // raises them as an uncaught exception and parseGenesis never rolls back
+          .on("error",
+            (e) => {
+              this.log.error("Error reading genesis array " + path, {
+                error: e,
+              });
+              reject(e);
             });
       }
-      catch (_e) {
-        this.log.verbose("Error in setArrayReader: " + _e);
-        reject();
+      catch (e) {
+        this.log.verbose("Error in setArrayReader: " + e);
+        reject(e);
       }
     });
 
@@ -1072,12 +1446,12 @@ export class EcleciaIndexer extends EclesiaEmitter {
     const readPromise = new Promise<boolean>((resolve, reject) => {
       try {
         const filters = path.split(".");
-        const pickers = filters.map(filter => Pick.pick({
+        const pickers = filters.map(filter => pick({
           filter,
         }));
 
         let counter = 0;
-        chain([this.readGenesis(), ...pickers, StreamValues.streamValues(), processor])
+        chain([this.readGenesis(), parser(), ...pickers, streamValues(), processor])
           .on("data",
             (_data) => {
               counter++;
@@ -1086,10 +1460,18 @@ export class EcleciaIndexer extends EclesiaEmitter {
             () => {
               this.log.info(`Processed ${counter} entries`);
               resolve(true);
+            })
+          .on("error",
+            (e) => {
+              this.log.error("Error reading genesis value " + path, {
+                error: e,
+              });
+              reject(e);
             });
       }
-      catch (_e) {
-        reject();
+      catch (e) {
+        this.log.verbose("Error in setValueReader: " + e);
+        reject(e);
       }
     });
 
@@ -1098,6 +1480,8 @@ export class EcleciaIndexer extends EclesiaEmitter {
 
   private async parseGenesis() {
     this.log.info("Parsing genesis");
+    // Lets the storage layer mark the import as in progress before anything is written
+    await this.config.onGenesisStart?.();
     await this.config.beginTransaction();
     try {
       this.log.info("Starting genesis import");
@@ -1152,6 +1536,8 @@ export class EcleciaIndexer extends EclesiaEmitter {
           }
           return data;
         });
+      // Recorded inside the last transaction, so "complete" commits together with the final chunk
+      await this.config.onGenesisComplete?.();
       await this.config.endTransaction(true);
 
       this.log.info("Finished importing");
@@ -1162,10 +1548,17 @@ export class EcleciaIndexer extends EclesiaEmitter {
       }
       catch (dbe) {
         this.prometheus?.recordError("database");
-        this.log.error("Error ending transaction. Must be a DB error: " + dbe);
+        this.log.error("Error ending transaction", {
+          error: dbe,
+        });
       }
       this.log.error("Failed to import genesis");
       throw e;
     }
   }
 }
+
+/** @deprecated Misspelling kept for compatibility, use EclesiaIndexer. Removed in 3.0. */
+export const EcleciaIndexer = EclesiaIndexer;
+/** @deprecated Misspelling kept for compatibility, use EclesiaIndexer. Removed in 3.0. */
+export type EcleciaIndexer = EclesiaIndexer;

@@ -98,21 +98,20 @@ Error: sorry, too many clients already
 - Connection establishment delays
 
 **Solutions:**
-1. Increase RPC_TIMEOUT_MS constant (default: 20000ms) in `@eclesia/indexer-engine/src/constants.ts`
-2. Adjust CONNECT_TIMEOUT_MS if connection establishment is slow (default: 10000ms)
-3. Use local RPC node if possible to reduce network latency
-4. Reduce batchSize in configuration to lower concurrent load
-5. Check RPC node performance and resources
-6. The indexer automatically retries failed RPC calls with exponential backoff
+1. Use a local RPC node if possible to reduce network latency
+2. Reduce batchSize in configuration to lower concurrent load
+3. Check RPC node performance and resources
+4. A failed or timed-out fetch (RPC_TIMEOUT_MS, 20 s) triggers a restart with exponential backoff, 5 s doubling up to 5 min. Restarts are unlimited unless `maxRetries` is set. The timeouts themselves are compile-time constants in `@eclesia/indexer-engine` and cannot be changed through configuration yet.
 
 ### Genesis Processing Issues
 
-#### Error: "Genesis path not set"
+#### Warning: "shouldProcessGenesis() returned true but no genesisPath is configured"
 
 **Symptoms:**
 ```
-Error: Genesis path not set
+[WARN]: shouldProcessGenesis() returned true but no genesisPath is configured, skipping genesis import
 ```
+Indexing starts at block 1 without genesis state, so module balances and delegations are incomplete.
 
 **Causes:**
 - processGenesis enabled but no genesisPath provided
@@ -214,22 +213,25 @@ Error: Module cosmos.bank.v1beta1 not found
 2. Check module dependencies are installed
 3. Ensure module order matches dependency graph
 
-#### Error: "Database not configured"
+#### Error: "Migration N (name) for <module> failed"
 
 **Symptoms:**
-- Module setup fails
-- Table creation errors
+- Module setup fails on start
+- The log names the module, the migration version and the SQL error
+
+**How schema changes work:**
+Each module ships numbered SQL files (`sql/001_initial.sql`, `sql/002_...sql`). On every start, `PgIndexer.applyMigrations` records what has been applied in the `schema_migrations` table and runs the rest in order, each in its own transaction. A database created before migrations existed is recognised by its existing tables and baselined at version 1 without re-running it.
 
 **Causes:**
-- Tables not created
-- Migration not run
-- Permission issues
+- PostgreSQL user lacks `CREATE` or `ALTER` permission
+- A migration conflicts with manual changes made to the schema
+- A previous migration was applied by hand without being recorded
 
 **Solutions:**
-1. Module should auto-create tables on first run
-2. Check PostgreSQL user has CREATE TABLE permission
-3. Look for SQL errors in logs
-4. Manually run SQL from module's sql/module.sql file
+1. Check the PostgreSQL user has CREATE TABLE and ALTER TABLE permission
+2. Read the SQL error in the log; the failed migration was rolled back and nothing was recorded, so fixing the cause and restarting re-applies it
+3. If the change was already applied manually, record it: `INSERT INTO schema_migrations(module, version, name) VALUES ('<module>', N, '<name>')`
+4. Inspect state with `SELECT * FROM schema_migrations ORDER BY module, version`
 
 ## Debugging Tips
 
@@ -245,11 +247,11 @@ Error: Module cosmos.bank.v1beta1 not found
 
 The indexer exposes a health check endpoint:
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8888/health
 ```
 
 Response includes:
-- Status (OK, FAILED)
+- Status: `CONNECTING` while starting, `OK` while processing blocks, `WAITING` when caught up and the chain has produced no new block (HTTP 200), `FAILED` after an error (HTTP 503, until the restart succeeds)
 
 ### Monitor Metrics
 
@@ -379,7 +381,7 @@ A: The indexer automatically resumes from the last successfully indexed block by
 
 ### Q: Can I index from a specific height?
 
-A: Yes, set startHeight in configuration. The indexer will use max(startHeight, lastIndexedHeight + 1).
+A: Yes, set startHeight in configuration. It is used only when the database has no blocks yet; otherwise indexing resumes from the highest stored height plus one.
 
 ### Q: How do I skip genesis processing?
 
@@ -391,7 +393,7 @@ A: Minimal mode indexes only blocks and basic data. Full mode includes validator
 
 ### Q: How do I handle chain upgrades?
 
-A: The indexer should continue working through upgrades. If schema changes are needed, you may need to run migrations or adjust module handlers.
+A: A halted chain is not an error. Once caught up, the indexer waits for the next block with no timeout, reports `WAITING` on the health endpoint, and checks the chain height every 30 s. When blocks resume it continues from where it stopped. Module schema changes ship as versioned migrations that are applied on the next start.
 
 ### Q: Can I add custom modules?
 
@@ -412,17 +414,14 @@ If you encounter issues not covered here:
 ### Automatic Recovery
 
 The indexer includes automatic recovery for:
-- **RPC connection failures** - Automatic retry with exponential backoff
-- **Transient database errors** - Automatic transaction rollback and retry
-- **WebSocket disconnections** - Automatic reconnection with connection management
-- **Block listener setup failures** - Automatic recovery and retry mechanisms
-- **Database connection recycling** - Automatic client recycling every 1500 transactions to prevent stale connections
-- **Error metrics tracking** - Enhanced error monitoring and reporting for better diagnostics
+- **RPC connection failures and timed-out fetches** - Restart with exponential backoff (5 s doubling up to 5 min), unlimited unless `maxRetries` is set
+- **Transient database errors** - The block's transaction is rolled back and the block is retried after a restart
+- **Dropped database connections** - A fresh client is created on the next query; a drop during a block rolls that block back
+- **Dead WebSocket subscriptions** - Detected when the chain height advances without a block being announced; heights skipped by the subscription are fetched
+- **Idle chains** - Not treated as an error: the indexer waits, reports `WAITING`, and resumes when blocks appear
+- **Database connection recycling** - The client is replaced every 1500 committed transactions to prevent stale connections
 
-**New in Recent Updates:**
-- Improved retry logic that ensures retry counters are only incremented once
-- Enhanced block listener recovery from setup failures
-- Better error metrics for tracking indexer health
+`fatal-error` is emitted only when `maxRetries` is configured and exceeded. Listen for it if you want the process to exit in that case.
 
 ### Manual Recovery
 

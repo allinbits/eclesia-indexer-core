@@ -51,6 +51,9 @@ export class IndexerMetrics {
   /** Gauge for retry count */
   public readonly retryCount: Gauge;
 
+  /** Gauge set to 1 while the indexer is caught up and waiting for the chain to produce a block */
+  public readonly waitingForBlocks: Gauge;
+
   /** Counter for total transactions processed */
   public readonly transactionsProcessed: Counter;
 
@@ -144,6 +147,12 @@ export class IndexerMetrics {
     });
 
     // Operational metrics
+    this.waitingForBlocks = new Gauge({
+      name: "indexer_waiting_for_blocks",
+      help: "1 while the indexer is at the chain tip waiting for the next block, 0 otherwise",
+      registers: [this.registry],
+    });
+
     this.retryCount = new Gauge({
       name: "indexer_retry_count",
       help: "Current number of retry attempts",
@@ -169,6 +178,14 @@ export class IndexerMetrics {
     this.latestHeight.set(latestHeight);
     this.blocksBehind.set(latestHeight - currentHeight);
     this.queueDepth.set(queueSize);
+  }
+
+  /**
+   * Flags whether the indexer is idle at the chain tip
+   * @param waiting - true while waiting for the chain to produce a block
+   */
+  setWaiting(waiting: boolean) {
+    this.waitingForBlocks.set(waiting ? 1 : 0);
   }
 
   /**

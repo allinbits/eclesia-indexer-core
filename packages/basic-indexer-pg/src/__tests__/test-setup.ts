@@ -1,5 +1,11 @@
+import {
+  Types,
+} from "@eclesia/indexer-engine";
 import type {
   Mock,
+} from "vitest";
+import {
+  vi,
 } from "vitest";
 
 import {
@@ -35,5 +41,21 @@ export function createTestConfig(): PgIndexerConfig {
     prometheusPort: 9090,
     minimal: false,
     dbConnectionString: "postgresql://user:pass@localhost:5432/testdb",
+  };
+}
+
+/** A minimal module that satisfies the IndexingModule interface */
+export function createMockModule(name: string): Types.IndexingModule & {
+  init: Mock
+  setup: Mock
+} {
+  return {
+    indexer: {
+    } as never,
+    name,
+    depends: [] as string[],
+    provides: [] as string[],
+    init: vi.fn(),
+    setup: vi.fn().mockResolvedValue(undefined),
   };
 }

@@ -13,14 +13,14 @@ import {
 } from "cosmjs-types/cosmos/tx/v1beta1/tx";
 
 import {
-  EcleciaIndexer,
+  EclesiaIndexer,
 } from "../indexer";
 import {
   CircularBuffer,
 } from "../promise-queue";
 
 /** Configuration interface for the Eclesia indexer */
-export type EcleciaIndexerConfig = {
+export type EclesiaIndexerConfig = {
   startHeight?: number                                           // Block height to start indexing from
   endHeight?: number                                             // Block height to stop indexing at (optional)
   batchSize: number                                              // Number of blocks to process in parallel
@@ -28,6 +28,7 @@ export type EcleciaIndexerConfig = {
   getNextHeight: () => number | PromiseLike<number>             // Function to determine next block to process
   logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly" // Logging verbosity level
   rpcUrl: string                                                 // Tendermint RPC endpoint URL
+  chainId?: string                                               // Refuse to index if the RPC reports a different network
   shouldProcessGenesis: () => Promise<boolean>                   // Whether to process genesis state
   genesisPath?: string                                           // Path to genesis file
   usePolling?: boolean                                           // Use polling instead of WebSocket subscription
@@ -37,10 +38,20 @@ export type EcleciaIndexerConfig = {
   healthCheckPort?: number                                       // Port for health check HTTP server (default: 8888)
   enablePrometheus?: boolean                                     // Enable Prometheus metrics server
   prometheusPort?: number                                        // Port for Prometheus metrics server (default: 9090)
+  healthCheckHost?: string                                       // Address the health check server binds to (default: 0.0.0.0)
+  prometheusHost?: string                                        // Address the metrics server binds to (default: 0.0.0.0)
+  logFormat?: "text" | "json"                                    // Console log format (default: text)
+  maxRetries?: number                                            // Emit fatal-error after this many consecutive failed restarts; unlimited when unset
+  maxFailuresPerBlock?: number                                   // Consecutive processing failures on one block before fatal-error (default: 5)
+  onGenesisStart?: () => Promise<void>                           // Called before the genesis import begins, outside any transaction
+  onGenesisComplete?: () => Promise<void>                        // Called inside the final genesis transaction, right before it commits
   init?: () => Promise<void>                                     // Custom initialization function
   beginTransaction: () => Promise<void>                          // Function to begin database transaction
   endTransaction: (status: boolean) => Promise<void>             // Function to end database transaction
 };
+
+/** @deprecated Misspelling kept for compatibility, use EclesiaIndexerConfig. Removed in 3.0. */
+export type EcleciaIndexerConfig = EclesiaIndexerConfig;
 
 /** Queue for full indexing mode with validator data */
 export type FullBlockQueue = CircularBuffer<[BlockResponse, BlockResultsResponse, Uint8Array]>;
@@ -82,6 +93,7 @@ export type Events = {
     error: Error
     message: string
     retryCount?: number
+    height?: number   // Set when one block failed repeatedly
   }
   begin_block: {
     value: {
@@ -129,11 +141,25 @@ export type TxResult<T> = {
 
 /** Interface that all indexing modules must implement */
 export interface IndexingModule {
-  indexer: EcleciaIndexer                    // Reference to the main indexer instance
+  indexer: EclesiaIndexer                    // Reference to the main indexer instance
   name: string                               // Unique module name
   depends: string[]                          // Array of module names this module depends on
   provides: string[]                         // Array of capabilities this module provides
   setup: () => Promise<void>                 // Async setup function for database schema initialization
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   init: (...args: any[]) => void            // Initialization function called by the indexer
+}
+
+/**
+ * Global event map. Modules add their own events through declaration merging:
+ *
+ *   declare global { interface EventMap extends MyModule.Events {} }
+ *
+ * Declared in a regular module (not an ambient .d.ts) so it is emitted into the
+ * published declarations and consumers get typed events without extra setup.
+ */
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  interface EventMap extends Events {
+  }
 }

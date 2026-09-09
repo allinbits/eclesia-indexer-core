@@ -3,14 +3,24 @@ import {
 } from "@eclesia/indexer-engine";
 
 import {
-  AuthModule,
+  AuthModule, Events as AuthEvents,
 } from "./cosmos.auth.v1beta1/index.js";
 import {
-  BankModule,
+  BankModule, Events as BankEvents,
 } from "./cosmos.bank.v1beta1/index.js";
 import {
-  StakingModule,
+  Events as StakingEvents, StakingModule,
 } from "./cosmos.staking.v1beta1/index.js";
+
+/**
+ * Extends the engine's global EventMap with every event these modules emit, so consumers get
+ * typed handlers for module events without declaring anything themselves. Declared here rather
+ * than in an ambient .d.ts so it is emitted into the published declarations.
+ */
+declare global {
+  interface EventMap extends AuthEvents, BankEvents, StakingEvents, Types.Events {
+  }
+}
 export * as Blocks from "./blocks/index.js";
 export {
   AuthModule,

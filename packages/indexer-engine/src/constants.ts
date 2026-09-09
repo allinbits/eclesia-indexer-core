@@ -43,10 +43,39 @@ export const CONNECT_TIMEOUT_MS = 10000;
 export const RPC_TIMEOUT_MS = 20000;
 
 /**
- * Timeout for block queue dequeue operations in milliseconds
- * If no block is available within this time, an error will be thrown
+ * @deprecated Waiting for a block is no longer bounded by a timeout: an idle chain is not an
+ * error. Kept as an export for compatibility; see IDLE_CHECK_INTERVAL_MS.
  */
 export const QUEUE_DEQUEUE_TIMEOUT_MS = 30000;
+
+/**
+ * How long the indexer waits without any block announcement before checking the chain height.
+ * If the chain has moved on without us the subscription is dead and a recovery is triggered;
+ * if the chain is simply idle (halt, upgrade) the indexer reports WAITING and checks again.
+ */
+export const IDLE_CHECK_INTERVAL_MS = 30000;
+
+/**
+ * Delay before the first restart after a failure; doubles on every consecutive failure
+ */
+export const RETRY_BASE_DELAY_MS = 5000;
+
+/**
+ * Upper bound for the restart delay
+ */
+export const RETRY_MAX_DELAY_MS = 300000;
+
+/**
+ * Consecutive processing failures on the same block before the indexer gives up with a
+ * fatal-error. A block that keeps failing after its data was fetched is a bug or bad data, not
+ * an outage, and retrying it forever hides the problem.
+ */
+export const MAX_FAILURES_PER_BLOCK = 5;
+
+/**
+ * Address the health check and metrics servers bind to unless configured otherwise
+ */
+export const DEFAULT_BIND_HOST = "0.0.0.0";
 
 /**
  * Number of successful transactions before recycling the database client

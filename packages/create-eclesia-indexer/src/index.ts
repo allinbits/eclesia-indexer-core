@@ -2,20 +2,14 @@ import {
   existsSync,
 } from "node:fs";
 import {
-  dirname, resolve,
+  resolve,
 } from "node:path";
-import {
-  fileURLToPath,
-} from "node:url";
 
 import colors from "picocolors";
 
 import {
   createIndexer,
 } from "./create-indexer.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 async function main() {
   console.log();

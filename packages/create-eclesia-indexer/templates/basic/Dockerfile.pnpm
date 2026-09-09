@@ -1,30 +1,21 @@
-# syntax=docker.io/docker/dockerfile:1.7-labs
+# syntax=docker/dockerfile:1
 
-FROM node:20-alpine3.21 AS builder
-
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
+# Build stage: install every dependency, compile, then drop dev dependencies
+FROM node:22-alpine AS build
 WORKDIR /usr/src/app
-
-COPY pnpm-lock.yaml package.json pnpm-workspace.yaml ./
-
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
+COPY tsconfig.json tsdown.config.ts ./
+COPY src ./src
+RUN pnpm run build && pnpm prune --prod
 
-COPY --exclude=genesis.json . .
-
-# Final image
-FROM node:20-alpine3.21 
-
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
+# Runtime stage: only the compiled output and production dependencies, running as the unprivileged node user
+FROM node:22-alpine
+ENV NODE_ENV=production
 WORKDIR /usr/src/app
-
-COPY pnpm-lock.yaml package.json pnpm-workspace.yaml ./
-
-RUN pnpm install --frozen-lockfile --prod
-
-COPY --from=builder /usr/src/app .
-
-RUN pnpm run build
-
-ENTRYPOINT ["node", "dist/index.js" ]
+COPY --from=build --chown=node:node /usr/src/app/package.json ./package.json
+COPY --from=build --chown=node:node /usr/src/app/node_modules ./node_modules
+COPY --from=build --chown=node:node /usr/src/app/dist ./dist
+USER node
+ENTRYPOINT ["node", "dist/index.js"]

@@ -8,7 +8,7 @@ import {
 } from "@cosmjs/tendermint-rpc";
 
 import {
-  EcleciaIndexer, Mocks,
+  EclesiaIndexer, Mocks,
   Types,
 } from "../src/index.js";
 
@@ -32,7 +32,7 @@ export interface BenchmarkConfig {
  * Creates a mock indexer for benchmarking
  */
 export function createBenchmarkIndexer(config: BenchmarkConfig): {
-  indexer: EcleciaIndexer
+  indexer: EclesiaIndexer
   mockRpc: CometClient
 } {
   const mockRpc = Mocks.createMockRpcClient({
@@ -42,7 +42,7 @@ export function createBenchmarkIndexer(config: BenchmarkConfig): {
     endHeight: config.blockCount,
   });
   let counter = 0;
-  const indexerConfig: Types.EcleciaIndexerConfig = {
+  const indexerConfig: Types.EclesiaIndexerConfig = {
     rpcUrl: "http://mock-rpc:26657",
     batchSize: config.batchSize,
     modules: [],
@@ -50,6 +50,7 @@ export function createBenchmarkIndexer(config: BenchmarkConfig): {
     minimal: true,
     enableHealthcheck: false,
     enablePrometheus: false,
+    endHeight: config.endHeight,
     getNextHeight: async () => {
       counter++;
       return counter;
@@ -63,7 +64,7 @@ export function createBenchmarkIndexer(config: BenchmarkConfig): {
     shouldProcessGenesis: async () => false,
   };
 
-  const indexer = new EcleciaIndexer(indexerConfig);
+  const indexer = new EclesiaIndexer(indexerConfig);
 
   // Replace RPC clients with mocks if requested
   if (config.mockRpc !== false) {
@@ -83,7 +84,7 @@ export function createBenchmarkIndexer(config: BenchmarkConfig): {
  * Process a range of blocks and measure performance
  */
 export async function processBlockRange(
-  indexer: EcleciaIndexer,
+  indexer: EclesiaIndexer,
   mockRpc: Mocks.MockRpcClient,
   startHeight: number,
   endHeight: number,
@@ -107,4 +108,24 @@ export async function processBlockRange(
     duration,
     blocksPerSecond,
   };
+}
+
+/**
+ * Starts an indexer against the mock RPC, waits until the block at `lastHeight` has been
+ * processed, then tears the indexer down. Used by the throughput benchmarks so every
+ * iteration measures a complete start-process-stop cycle.
+ */
+export async function runUntilHeight(indexer: EclesiaIndexer, lastHeight: number): Promise<void> {
+  const done = new Promise<void>((resolve) => {
+    indexer.on("block", (data: {
+      height?: number
+    }) => {
+      if ((data.height ?? 0) >= lastHeight) {
+        resolve();
+      }
+    });
+  });
+  indexer.start().catch(() => { /* surfaced through the block event never arriving */ });
+  await done;
+  await indexer.stop();
 }

@@ -1,4 +1,3 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   fileURLToPath,
@@ -17,10 +16,10 @@ import {
   BlockResultsResponse as BlockResultsResponse38,
 } from "@cosmjs/tendermint-rpc/build/comet38/responses.js";
 import {
-  PgIndexer,
+  loadMigrations, PgIndexer,
 } from "@eclesia/basic-pg-indexer";
 import {
-  EcleciaIndexer, Types,
+  EclesiaIndexer, Types,
 } from "@eclesia/indexer-engine";
 import {
   Utils,
@@ -56,7 +55,7 @@ export type Events = {
  * Handles balance changes from coin_spent, coin_received, burn, and coinbase events
  */
 export class BankModule implements Types.IndexingModule {
-  indexer!: EcleciaIndexer;
+  indexer!: EclesiaIndexer;
 
   private pgIndexer!: PgIndexer;
 
@@ -79,31 +78,7 @@ export class BankModule implements Types.IndexingModule {
    * Creates the balances table if it doesn't exist
    */
   async setup() {
-    await this.pgIndexer.beginTransaction();
-    const client = this.pgIndexer.getInstance();
-
-    // Check if the balances table already exists
-    const exists = await client.query(
-      "SELECT EXISTS ( SELECT FROM pg_tables WHERE  schemaname = 'public' AND tablename  = 'balances')",
-    );
-
-    if (!exists.rows[0].exists) {
-      this.indexer.log.warn("Database not configured");
-      // Load and execute the bank module schema SQL file
-      const base = fs.readFileSync(__dirname + "/./sql/module.sql").toString();
-      try {
-        await client.query(base);
-        this.indexer.log.info("DB has been set up");
-        await this.pgIndexer.endTransaction(true);
-      }
-      catch (e) {
-        await this.pgIndexer.endTransaction(false);
-        throw new Error("" + e);
-      }
-    }
-    else {
-      await this.pgIndexer.endTransaction(true);
-    }
+    await this.pgIndexer.applyMigrations(this.name, loadMigrations(path.join(__dirname, "sql")), "balances");
   }
 
   /**
@@ -129,21 +104,15 @@ export class BankModule implements Types.IndexingModule {
       // Ensure all accounts exist before setting balances
       await (this.pgIndexer.modules["cosmos.auth.v1beta1"] as AuthModule).assertAccounts(addresses);
 
-      // Format coin arrays for PostgreSQL COIN[] type
-      const values = [
-        addresses,
-        balances.map((y: Coin[]) => {
-          return "{\"" + y.map((x: Coin) => {
-            return "(" + x.denom + ", " + x.amount + ")";
-          }).join(",") + "\"}";
-        }),
-      ];
+      // One JSON array of coins per account. The query unpacks it into a COIN[] server-side,
+      // which stays valid for multi-denom accounts, any denom characters, and empty coin lists.
+      const values = [addresses, balances.map((y: Coin[]) => JSON.stringify(y))];
 
       const endTimer = this.indexer.prometheus?.timeDatabaseQuery("insert-genesis-balance") ?? void 0;
       // Bulk insert genesis balances
       await db.query({
         name: "save-genesis-balances",
-        text: "INSERT INTO balances(address,coins)  SELECT a,CAST( b as COIN[]) FROM UNNEST ($1::text[], $2::text[]) as t(a,b)",
+        text: "INSERT INTO balances(address,coins) SELECT a, ARRAY(SELECT ROW(c->>'denom', c->>'amount')::COIN FROM jsonb_array_elements(b::jsonb) WITH ORDINALITY AS e(c, i) ORDER BY i) FROM UNNEST($1::text[], $2::text[]) AS t(a,b)",
         values,
       });
       endTimer?.();
@@ -415,8 +384,12 @@ export class BankModule implements Types.IndexingModule {
         ).toString();
       }
       else {
-        // Create negative balance entry (shouldn't happen in normal operation)
-        balance.push(coins[i]);
+        // First sight of this denom is a spend: record the negative delta so the running
+        // balance stays a correct offset of everything observed since tracking began
+        balance.push({
+          denom,
+          amount: (-BigInt(amount)).toString(),
+        });
       }
     }
 
@@ -452,7 +425,7 @@ export class BankModule implements Types.IndexingModule {
           address,
           // Format coins for PostgreSQL COIN[] type
           amount.map((x) => {
-            return "(\"" + x.denom + "\", \"" + x.amount + "\")";
+            return "(\"" + x.denom + "\",\"" + x.amount + "\")";
           }),
           height,
         ],
@@ -487,7 +460,7 @@ export class BankModule implements Types.IndexingModule {
           address,
           // Format coins for PostgreSQL COIN[] type
           amount.map((x) => {
-            return "(\"" + x.denom + "\", \"" + x.amount + "\")";
+            return "(\"" + x.denom + "\",\"" + x.amount + "\")";
           }),
         ],
       });

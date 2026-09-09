@@ -6,7 +6,7 @@ This guide provides recommendations for optimizing Eclesia Indexer performance i
 
 ### Batch Size
 
-The `batchSize` parameter controls how many blocks are prefetched and processed in parallel.
+The `batchSize` parameter controls how many blocks are prefetched ahead of the processor. Fetching is parallel; processing is strictly sequential.
 
 **Default:** 500 blocks
 
@@ -17,8 +17,8 @@ The `batchSize` parameter controls how many blocks are prefetched and processed 
 - **Very large blocks**: Reduce to 100-300
 
 **Impact:**
-- Higher = More memory usage, better throughput
-- Lower = Less memory, slower throughput
+- Higher = more RPC requests in flight and more memory; hides RPC latency while catching up
+- Lower = less memory; throughput drops only if the RPC cannot keep the queue full
 
 **Example:**
 ```typescript
@@ -154,8 +154,7 @@ The indexer includes automatic connection recycling:
 
 **Configuration:**
 ```typescript
-// Constant is exported from @eclesia/indexer-engine/src/constants.ts
-export const DB_CLIENT_RECYCLE_COUNT = 1500;  // Default value
+import { DB_CLIENT_RECYCLE_COUNT } from "@eclesia/indexer-engine"; // 1500, compile-time constant
 ```
 
 **How it works:**
@@ -168,8 +167,8 @@ export const DB_CLIENT_RECYCLE_COUNT = 1500;  // Default value
 # Check active connections
 SELECT count(*) FROM pg_stat_activity WHERE datname = 'your_database';
 
-# Monitor connection recycling via logs (debug level)
-# Look for "Database client disconnected" and reconnection messages
+# Recycling is logged at info level as "Recycling database client".
+# "Database client disconnected" (warn) means the connection dropped unexpectedly.
 ```
 
 ### Maintenance
@@ -230,21 +229,21 @@ NODE_OPTIONS="--max-old-space-size=8192" npm start
 ```
 
 **Performance impact:**
-- `debug`/`verbose` = ~5-10% slower due to I/O
-- `silly` = ~15-20% slower, very verbose
+- `debug`/`verbose` = ~5-10% slower due to output volume
+- `silly` = ~15-20% slower and wraps every query with timing
+
+Logs go to stdout only. `logFormat: "json"` emits one JSON object per line for log shippers; the default text format is meant for terminals.
 
 ### Module Selection
 
-Only enable required modules:
+Only instantiate the modules you need. Modules are selected by passing their instances to `PgIndexer`, not by name:
 
 ```typescript
-{
-  modules: ["cosmos.bank.v1beta1", "cosmos.staking.v1beta1"]
-  // Don't include auth if not needed
-}
+const indexer = new PgIndexer(config, [blocksModule, authModule, bankModule]);
+// leave out stakingModule if you do not need validator and delegation data
 ```
 
-**Impact:** Each module adds processing overhead and RPC calls
+**Impact:** Each module adds queries per block, and the staking module adds a validator query per block plus slashing re-syncs. The bank and staking modules depend on auth.
 
 ## Hardware Recommendations
 
@@ -305,31 +304,36 @@ Only enable required modules:
 
 ### RPC Timeouts
 
-Adjust based on network conditions:
+The engine uses fixed timeouts, exported from `@eclesia/indexer-engine` for reference:
 
-```typescript
-// In @eclesia/indexer-engine/src/constants.ts
-export const RPC_TIMEOUT_MS = 20000;        // 20 seconds (default) - for RPC call responses
-export const CONNECT_TIMEOUT_MS = 10000;    // 10 seconds (default) - for connection establishment
-```
+| Constant | Default | Applies to |
+|----------|---------|------------|
+| `CONNECT_TIMEOUT_MS` | 10 s | Each RPC connection step |
+| `RPC_TIMEOUT_MS` | 20 s | Each block, block-results and validator fetch |
+| `IDLE_CHECK_INTERVAL_MS` | 30 s | How long to wait without a block announcement before comparing chain heights |
+| `RETRY_BASE_DELAY_MS` / `RETRY_MAX_DELAY_MS` | 5 s / 5 min | Restart backoff after a failure |
 
-**Slow networks:**
-- Increase RPC_TIMEOUT_MS to 30000-60000ms
-- Increase CONNECT_TIMEOUT_MS to 20000-30000ms
-
-**Fast local network:**
-- Can reduce RPC_TIMEOUT_MS to 10000-15000ms
-- Can reduce CONNECT_TIMEOUT_MS to 5000-8000ms
-
-**Recent Addition:** The CONNECT_TIMEOUT_MS constant was added to provide separate control over connection establishment timeout, improving reliability on slow networks.
+They are compile-time constants and cannot be changed through configuration. On a slow RPC, prefer a smaller `batchSize` (fewer fetches in flight) and a local node over editing the package.
 
 ## Benchmarking
 
-Run benchmarks to establish baseline performance:
+`pnpm run bench` runs the engine benchmarks in `packages/indexer-engine/benchmarks` with no RPC node and no database, so they isolate the engine's own overhead. Reference results on Apple M4 Pro (48 GB, Node v24.13.0), mean of 5 iterations:
 
-```bash
-pnpm bench
-```
+| Case | Mean | Throughput |
+|------|-----:|-----------:|
+| 100 blocks, 10 tx each | 13 ms | ~7,500 blocks/s |
+| 100 blocks, 100 tx each | 93 ms | ~1,070 blocks/s |
+| 1,000 blocks, 10 tx each | 121 ms | ~8,200 blocks/s |
+| 1,000 blocks, 100 tx each | 1,001 ms | ~1,000 blocks/s |
+| Genesis import, 20,000 accounts + 20,000 balances | 1,140 ms | ~35,000 entries/s |
+
+**How to read them:**
+- Engine cost is proportional to transactions per block; block count barely matters.
+- Ten no-op message listeners add about 10%, so handler registration itself is cheap. Real module handlers cost whatever their queries cost.
+- A production indexer on a live chain is bound by the database and the RPC, typically tens to a few hundred blocks per second. If you measure far below that, look at query latency (`indexer_database_query_duration_seconds`) and RPC latency (`indexer_rpc_call_duration_seconds`) before tuning the engine.
+- Genesis import re-reads the file once per registered `genesis/*` handler. Ten handlers on a 2 GB genesis means ten passes; register only the keys you need.
+
+To compare a change, run the suite before and after on the same machine; the relative margin of error is printed per case and is usually within 5% for the larger cases.
 
 ## Monitoring Performance
 
@@ -420,10 +424,14 @@ Consider application-level caching for:
 
 For very large genesis files:
 
-**Chunking** (now automatic):
-- Commits every 5000 entries
-- Prevents transaction timeout
-- Better memory management
+**Chunking** (automatic):
+- Entries are streamed in batches of 1,000 and committed every 5 batches
+- Prevents transaction timeouts on multi-gigabyte files
+- Memory stays flat regardless of file size
+
+**Passes over the file:**
+- The file is streamed once per registered `genesis/*` handler plus once for gen_txs. With the core modules that is four passes. Register only the keys you need in custom modules.
+- Reference throughput with no database: about 35,000 entries per second (see Benchmarking).
 
 **Additional optimization:**
 ```bash
@@ -443,13 +451,13 @@ ALTER TABLE balances SET (autovacuum_enabled = true);
 VACUUM ANALYZE balances;
 ```
 
-### 5. Parallel Processing
+### 5. Prefetching
 
-The indexer already processes blocks in parallel via the queue system.
+Blocks are **fetched** in parallel and **processed** strictly in order, one at a time, inside one database transaction per block. Module handlers run sequentially within a block.
 
-**Batch size** controls parallelism:
-- Higher batch = more parallel processing
-- Monitor CPU usage - should be 70-90% during sync
+**Batch size** controls how many fetches are in flight ahead of the processor:
+- Higher batch = more RPC requests in flight and more memory; it does not make processing itself parallel
+- Monitor CPU usage of the indexer process and the database
 
 **Don't:**
 - Run multiple indexers on same database

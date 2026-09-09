@@ -35,6 +35,7 @@ const mockPgIndexer = {
   }),
   beginTransaction: vi.fn().mockResolvedValue(undefined),
   endTransaction: vi.fn().mockResolvedValue(undefined),
+  applyMigrations: vi.fn().mockResolvedValue(0),
   indexer: {
     log: mockLog,
     on: mockOn,
@@ -72,57 +73,28 @@ describe("BankModule", () => {
   });
 
   describe("setup", () => {
-    it("should skip setup if table already exists", async () => {
-      mockQuery.mockResolvedValueOnce({
-        rows: [
-          {
-            exists: true,
-          },
-        ],
-      });
-
+    it("applies the module's migrations through the indexer", async () => {
       bankModule.init(mockPgIndexer as unknown as PgIndexer);
+
       await bankModule.setup();
 
-      expect(mockPgIndexer.beginTransaction).toHaveBeenCalled();
-      expect(mockPgIndexer.endTransaction).toHaveBeenCalledWith(true);
-      expect(mockLog.warn).not.toHaveBeenCalled();
+      expect(mockPgIndexer.applyMigrations).toHaveBeenCalledWith(
+        bankModule.name,
+        expect.arrayContaining([
+          expect.objectContaining({
+            version: 1,
+            name: "initial",
+          }),
+        ]),
+        "balances",
+      );
     });
 
-    it("should create table if it does not exist", async () => {
-      mockQuery
-        .mockResolvedValueOnce({
-          rows: [
-            {
-              exists: false,
-            },
-          ],
-        })
-        .mockResolvedValueOnce(undefined);
-
+    it("propagates migration failures", async () => {
       bankModule.init(mockPgIndexer as unknown as PgIndexer);
-      await bankModule.setup();
+      mockPgIndexer.applyMigrations.mockRejectedValueOnce(new Error("Migration 2 failed"));
 
-      expect(mockLog.warn).toHaveBeenCalledWith("Database not configured");
-      expect(mockLog.info).toHaveBeenCalledWith("DB has been set up");
-      expect(mockPgIndexer.endTransaction).toHaveBeenCalledWith(true);
-    });
-
-    it("should rollback transaction on error", async () => {
-      mockQuery
-        .mockResolvedValueOnce({
-          rows: [
-            {
-              exists: false,
-            },
-          ],
-        })
-        .mockRejectedValueOnce(new Error("SQL error"));
-
-      bankModule.init(mockPgIndexer as unknown as PgIndexer);
-
-      await expect(bankModule.setup()).rejects.toThrow("SQL error");
-      expect(mockPgIndexer.endTransaction).toHaveBeenCalledWith(false);
+      await expect(bankModule.setup()).rejects.toThrow("Migration 2 failed");
     });
   });
 
@@ -138,6 +110,75 @@ describe("BankModule", () => {
       bankModule.init(mockPgIndexer as unknown as PgIndexer);
 
       expect(bankModule.indexer).toBe(mockPgIndexer.indexer);
+    });
+  });
+
+  describe("genesis/array/app_state.bank.balances", () => {
+    it("sends one JSON coin list per account and unpacks it server-side", async () => {
+      bankModule.init(mockPgIndexer as unknown as PgIndexer);
+      const handler = mockOn.mock.calls.find(
+        (call: unknown[]) => call[0] === "genesis/array/app_state.bank.balances",
+      )?.[1];
+      mockQuery.mockResolvedValue(undefined);
+
+      const event = {
+        value: [
+          {
+            address: "cosmos1multi",
+            coins: [
+              {
+                denom: "uatom",
+                amount: "100",
+              },
+              {
+                denom: "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2",
+                amount: "50",
+              },
+            ],
+          },
+          {
+            address: "cosmos1empty",
+            coins: [],
+          },
+        ],
+      };
+
+      expect(handler).toBeDefined();
+      await handler!(event);
+
+      expect(mockPgIndexer.modules["cosmos.auth.v1beta1"].assertAccounts).toHaveBeenCalledWith(["cosmos1multi", "cosmos1empty"]);
+      const insert = mockQuery.mock.calls.find(call => call[0]?.name === "save-genesis-balances")?.[0];
+      expect(insert).toBeDefined();
+      // A multi-denom account used to be serialised as a single malformed COIN[] element
+      expect(insert.values).toEqual([["cosmos1multi", "cosmos1empty"], ["[{\"denom\":\"uatom\",\"amount\":\"100\"},{\"denom\":\"ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2\",\"amount\":\"50\"}]", "[]"]]);
+      expect(insert.text).toContain("jsonb_array_elements(b::jsonb)");
+      expect(insert.text).toContain("::COIN");
+    });
+  });
+
+  describe("decreaseBalance", () => {
+    it("records a spend on a denom never seen before as a negative delta", async () => {
+      bankModule.init(mockPgIndexer as unknown as PgIndexer);
+      vi.spyOn(bankModule, "getBalance").mockResolvedValue([
+        {
+          denom: "uatom",
+          amount: "500",
+        },
+      ]);
+      const save = vi.spyOn(bankModule, "saveBalance").mockResolvedValue(undefined);
+
+      await bankModule.decreaseBalance("cosmos1escrow", "100uatom,25uphoton", 700);
+
+      expect(save).toHaveBeenCalledWith("cosmos1escrow", [
+        {
+          denom: "uatom",
+          amount: "400",
+        },
+        {
+          denom: "uphoton",
+          amount: "-25",
+        },
+      ], 700);
     });
   });
 

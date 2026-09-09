@@ -70,7 +70,7 @@ Create custom modules for the basic PG indexer by implementing the `IndexingModu
 
 ```typescript
 interface IndexingModule {
-  indexer: EcleciaIndexer           // Reference to main indexer
+  indexer: EclesiaIndexer           // Reference to main indexer
   name: string                      // Unique module name
   depends: string[]                 // Dependencies on other modules
   provides: string[]                // Capabilities this module provides
@@ -99,7 +99,7 @@ A PostgreSQL-specific implementation of the indexer engine, perfect for most use
 **Key Features:**
 - Built-in PostgreSQL connection management
 - Transaction support with rollback capabilities
-- Database schema management
+- Versioned schema migrations, applied on start and tracked per module
 - Optimized for high-throughput indexing
 
 ### 🧩 Core Modules (`@eclesia/core-modules-pg`)
@@ -110,7 +110,7 @@ Pre-built indexing modules for common Cosmos SDK functionality.
 - **`Blocks`**: Blocks.Full :Block and transaction indexing or Blocks.Minimal: Height tracking 
 - **`AuthModule`**: Account authentication data
 - **`BankModule`**: Token transfers and balances
-- **`StakingModule`**: Validator and delegation data
+- **`StakingModule`**: Validator and delegation data. Requires `Blocks.FullBlocksModule` (its schema references the block proposer) and a genesis import from height 1, so every proposer is known
 
 ### 🛠️ Project Generator (`create-eclesia-indexer`)
 
@@ -129,7 +129,7 @@ npx create-eclesia-indexer@latest
 
 ## ⚙️ Configuration
 
-The indexer is configured through the `EcleciaIndexerConfig` (or `PgIndexerConfig` for PostgreSQL) interface:
+The indexer is configured through the `EclesiaIndexerConfig` (or `PgIndexerConfig` for PostgreSQL) interface:
 
 ```typescript
 const config: PgIndexerConfig = {
@@ -189,17 +189,21 @@ npm start
 For advanced users who need full control:
 
 ```typescript
-import { EcleciaIndexer, EcleciaIndexerConfig } from '@eclesia/indexer-engine';
+import { EclesiaIndexer, EclesiaIndexerConfig } from '@eclesia/indexer-engine';
 
-const config: EcleciaIndexerConfig = {
+const config: EclesiaIndexerConfig = {
   // Custom configuration
 };
 
-const indexer = new EcleciaIndexer(config);
+const indexer = new EclesiaIndexer(config);
 // Custom event handlers and modules
-await indexer.setup();
-await indexer.run();
+await indexer.connect();
+await indexer.start();
+// ... later
+await indexer.stop();
 ```
+
+`setup()` and `run()` live on `PgIndexer` from `@eclesia/basic-pg-indexer`, which wraps the engine with a PostgreSQL connection, transactions and module setup.
 
 ## 📊 Example Implementation
 
@@ -271,7 +275,7 @@ export class MyCustomModule implements IndexingModule {
   depends = ["blocks"];              // Depends on blocks module
   provides = ["custom-data"];        // Provides custom data indexing
 
-  constructor(public indexer: EcleciaIndexer) {}
+  constructor(public indexer: EclesiaIndexer) {}
 
   async setup(): Promise<void> {
     // Create database tables, etc.
@@ -292,35 +296,53 @@ The generated projects include Docker support with a preconfigured common use ca
 
 ```bash
 # Build and run with Docker
-docker-compose up -d      # Start PostgreSQL, indexer and Hasura instance
+docker compose up -d      # Start PostgreSQL, indexer and Hasura instance (credentials are generated into .env at scaffold time)
 ```
 
 ## 📈 Performance
 
 - **Batch Processing**: Prefetch multiple blocks in parallel for optimal throughput
-- **WebSocket Support**: Real-time block streaming with automatic reconnection
+- **WebSocket Support**: Real-time block streaming; any height skipped by the subscription is fetched, and a dead subscription is detected by comparing the chain height every 30 s
 - **Transaction Management**: Atomic database operations with automatic rollback
 - **Memory Efficient**: Streaming JSON parsing for large datasets
 - **Optimized Operations**: High-performance insert and serialization operations
 - **Connection Management**: Automatic database connection recycling (every 1500 transactions)
-- **Error Recovery**: Automatic retry logic with exponential backoff
+- **Error Recovery**: Restarts with exponential backoff (5 s to 5 min), unlimited unless `maxRetries` is set; an idle chain (halt, upgrade) is reported as `WAITING`, not treated as a failure. A block that fails 5 times in a row after its data was fetched is a bug or bad data, not an outage: the engine emits `fatal-error` and `PgIndexer` exits the process (`exitOnFatal: false` to opt out)
+- **Logging**: Structured logs on stdout, text or JSON via `logFormat`; no log files are written
 - **LRU Caching**: Memory-efficient caching for validator data
+- **Monitoring**: Prometheus metrics and a health endpoint; a Grafana dashboard and the full metric list live in [monitoring/grafana](monitoring/grafana/README.md)
 
 ### Benchmarking
 
-Benchmark the indexer engine without needing an RPC node or database:
+Two Vitest bench suites in `packages/indexer-engine/benchmarks` measure the engine on its own, with no RPC node and no database:
+
+- **Block processing throughput**: blocks come from the in-memory mock RPC client, transaction handlers are no-ops. Each iteration starts an indexer, processes every block and tears it down, so the numbers cover fetch scheduling, decoding, event dispatch and the start/stop lifecycle.
+- **Genesis import**: streams a synthetic 20,000-account genesis file through the same stream-json pipeline the indexer uses at startup, with handlers that only count entries.
 
 ```bash
-# Run all benchmarks
+# Run every suite
 pnpm run bench
 
-# Run specific benchmarks
-pnpm run bench engine-indexing
+# Run one suite
+cd packages/indexer-engine
+pnpm bench block-processing
+pnpm bench genesis-parsing
 ```
 
-The benchmarking framework provides mock RPC and database clients for isolated performance testing.
+Reference results, Apple M4 Pro, 48 GB, Node v24.13.0, 2026-09-09 (mean of 5 iterations):
 
-For production performance tuning, see [PERFORMANCE.md](PERFORMANCE.md).
+| Case | Mean | Throughput |
+|------|-----:|-----------:|
+| 100 blocks, 10 tx each, no listeners | 15 ms | ~6,600 blocks/s |
+| 100 blocks, 100 tx each, no listeners | 125 ms | ~800 blocks/s |
+| 100 blocks, 10 tx each, 10 message listeners | 14 ms | ~7,100 blocks/s |
+| 1,000 blocks, 10 tx each, no listeners | 136 ms | ~7,400 blocks/s |
+| 1,000 blocks, 100 tx each, no listeners | 1,659 ms | ~600 blocks/s |
+| 1,000 blocks, 100 tx each, 10 message listeners | 1,726 ms | ~580 blocks/s |
+| Genesis: 20,000 accounts + 20,000 balances, 2 handlers | 1,106 ms | ~36,000 entries/s |
+| Genesis: 20,000 balances, 1 handler | 719 ms | ~28,000 entries/s |
+
+Cost scales with transactions per block rather than block count, and ten no-op listeners add under 10%. Each synthetic transaction carries a bech32 signer address and `coin_spent` / `coin_received` / `transfer` events, and generating that data inside the mock accounts for roughly a quarter of the 100-tx figures. Against a real chain the database and the RPC dominate; these figures are the ceiling the engine itself imposes.
 
 ## 🤝 Contributing
 

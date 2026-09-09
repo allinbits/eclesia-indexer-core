@@ -1,4 +1,3 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   fileURLToPath,
@@ -8,10 +7,10 @@ import {
   GeneratedType,
 } from "@cosmjs/proto-signing";
 import {
-  PgIndexer,
+  loadMigrations, PgIndexer,
 } from "@eclesia/basic-pg-indexer";
 import {
-  EcleciaIndexer, Types,
+  EclesiaIndexer, Types,
 } from "@eclesia/indexer-engine";
 import {
   JSONStringify,
@@ -26,7 +25,7 @@ const __dirname = path.dirname(__filename);
  * Lighter alternative to FullBlocksModule for basic block tracking
  */
 export class MinimalBlocksModule implements Types.IndexingModule {
-  indexer!: EcleciaIndexer;
+  indexer!: EclesiaIndexer;
 
   private pgIndexer!: PgIndexer;
 
@@ -49,31 +48,7 @@ export class MinimalBlocksModule implements Types.IndexingModule {
    * Creates only essential blocks table without transaction details
    */
   async setup() {
-    await this.pgIndexer.beginTransaction();
-    const client = this.pgIndexer.getInstance();
-
-    // Check if the blocks table already exists
-    const exists = await client.query(
-      "SELECT EXISTS ( SELECT FROM pg_tables WHERE  schemaname = 'public' AND tablename  = 'blocks')",
-    );
-
-    if (!exists.rows[0].exists) {
-      this.indexer.log.warn("Database not configured");
-      // Load and execute the minimal schema SQL file
-      const base = fs.readFileSync(__dirname + "/./sql/minimal.sql").toString();
-      try {
-        await client.query(base);
-        this.indexer.log.info("DB has been set up");
-        await this.pgIndexer.endTransaction(true);
-      }
-      catch (e) {
-        await this.pgIndexer.endTransaction(false);
-        throw new Error("" + e);
-      }
-    }
-    else {
-      await this.pgIndexer.endTransaction(true);
-    }
+    await this.pgIndexer.applyMigrations(this.name, loadMigrations(path.join(__dirname, "sql", "minimal")), "blocks");
   }
 
   /**
@@ -94,10 +69,10 @@ export class MinimalBlocksModule implements Types.IndexingModule {
     this.indexer.on("block", async (event): Promise<void> => {
       const block = event.value.block;
       const db = this.pgIndexer.getInstance();
-      const endTimer = this.indexer.prometheus?.timeDatabaseQuery("add-block") ?? void 0;
+      const endTimer = this.indexer.prometheus?.timeDatabaseQuery("add-block-minimal") ?? void 0;
       // Store minimal block data - only height and timestamp
       await db.query({
-        name: "add-block",
+        name: "add-block-minimal",
         text: "INSERT INTO blocks(height, timestamp) VALUES ($1,$2)",
         values: [block.block.header.height, block.block.header.time],
       });

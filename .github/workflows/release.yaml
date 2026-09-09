@@ -1,0 +1,69 @@
+name: Release
+
+# Changesets-driven release, modelled on gnolang/gno-js-client:
+#  - while changesets are pending, keeps a "chore: version packages" pull request up to date
+#    (versions, changelogs, internal dependency ranges);
+#  - when that pull request is merged, builds, publishes every package with a new version to npm
+#    with provenance, and pushes the git tags.
+#
+# Publishing uses npm trusted publishing (OIDC via id-token: write), so no NPM_TOKEN secret is
+# needed. Each package must list this repository and this workflow file as a trusted publisher
+# on npmjs.com: @eclesia/indexer-engine, @eclesia/basic-pg-indexer, @eclesia/core-modules-pg
+# and create-eclesia-indexer. To use a token instead, add NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+# to the env of the changesets step and drop id-token: write.
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history so @changesets/changelog-github can resolve commit and PR metadata
+          fetch-depth: 0
+
+      - name: Install pnpm
+        # Version comes from the packageManager field in package.json
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org/'
+
+      - name: Install modules
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify
+        run: |
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+
+      - name: Create Release Pull Request or Publish to npm
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          # Opens/updates a "chore: version packages" PR while changesets are pending.
+          # When that PR is merged, runs the publish script and pushes the git tags.
+          version: pnpm version:packages
+          publish: pnpm release
+          commit: 'chore: version packages'
+          title: 'chore: version packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'

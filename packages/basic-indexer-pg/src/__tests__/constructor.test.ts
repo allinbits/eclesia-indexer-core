@@ -9,6 +9,7 @@ import {
   PgIndexer,
 } from "../index";
 import {
+  createMockModule,
   createTestConfig, MockClient,
 } from "./test-setup";
 
@@ -29,12 +30,12 @@ vi.mock("pg", () => ({
   Client: vi.fn(function () { return mockClient; }),
 }));
 
-// Mock the EcleciaIndexer
+// Mock the EclesiaIndexer
 vi.mock("@eclesia/indexer-engine", async () => {
   const actual = await vi.importActual<typeof import("@eclesia/indexer-engine")>("@eclesia/indexer-engine");
   return {
     ...actual,
-    EcleciaIndexer: vi.fn().mockImplementation(function () {
+    EclesiaIndexer: vi.fn().mockImplementation(function () {
       return {
         log: {
           info: vi.fn(),
@@ -46,6 +47,8 @@ vi.mock("@eclesia/indexer-engine", async () => {
         },
         connect: vi.fn().mockResolvedValue(true),
         start: vi.fn().mockResolvedValue(undefined),
+        whenStopped: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn(),
       };
     }),
   };
@@ -118,11 +121,7 @@ describe("PgIndexer Constructor and Validation", () => {
   describe("Module Management", () => {
     it("should initialize modules passed in constructor", () => {
       const config = createTestConfig();
-      const mockModule = {
-        name: "test-module",
-        init: vi.fn(),
-        setup: vi.fn(),
-      };
+      const mockModule = createMockModule("test-module");
 
       const indexer = new PgIndexer(config, [mockModule]);
       expect(mockModule.init).toHaveBeenCalledWith(indexer);
@@ -132,11 +131,7 @@ describe("PgIndexer Constructor and Validation", () => {
     it("should add modules via addModules method", () => {
       const config = createTestConfig();
       const indexer = new PgIndexer(config);
-      const mockModule = {
-        name: "test-module",
-        init: vi.fn(),
-        setup: vi.fn(),
-      };
+      const mockModule = createMockModule("test-module");
 
       indexer.addModules([mockModule]);
       expect(mockModule.init).toHaveBeenCalledWith(indexer);
@@ -145,16 +140,8 @@ describe("PgIndexer Constructor and Validation", () => {
 
     it("should initialize multiple modules", () => {
       const config = createTestConfig();
-      const mockModule1 = {
-        name: "module-1",
-        init: vi.fn(),
-        setup: vi.fn(),
-      };
-      const mockModule2 = {
-        name: "module-2",
-        init: vi.fn(),
-        setup: vi.fn(),
-      };
+      const mockModule1 = createMockModule("module-1");
+      const mockModule2 = createMockModule("module-2");
 
       const indexer = new PgIndexer(config, [mockModule1, mockModule2]);
       expect(mockModule1.init).toHaveBeenCalledWith(indexer);
@@ -165,15 +152,24 @@ describe("PgIndexer Constructor and Validation", () => {
 
     it("should create indexer with modules using withModules factory", () => {
       const config = createTestConfig();
-      const mockModule = {
-        name: "test-module",
-        init: vi.fn(),
-        setup: vi.fn(),
-      };
+      const mockModule = createMockModule("test-module");
 
       const indexer = PgIndexer.withModules(config, [mockModule]);
       expect(mockModule.init).toHaveBeenCalledWith(indexer);
       expect(indexer.modules["test-module"]).toBe(mockModule);
+    });
+  });
+
+  describe("module registration guards", () => {
+    it("rejects a duplicate module name", () => {
+      const indexer = new PgIndexer(createTestConfig(), [createMockModule("dup")]);
+      expect(() => indexer.addModules([createMockModule("dup")])).toThrow("already registered");
+    });
+
+    it("rejects modules added after setup()", async () => {
+      const indexer = new PgIndexer(createTestConfig(), [createMockModule("early")]);
+      await indexer.setup();
+      expect(() => indexer.addModules([createMockModule("late")])).toThrow("before setup()");
     });
   });
 });

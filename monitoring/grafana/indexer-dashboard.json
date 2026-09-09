@@ -1,7 +1,11 @@
 {
   "dashboard": {
     "title": "Eclesia Indexer Monitoring",
-    "tags": ["blockchain", "indexer", "eclesia"],
+    "tags": [
+      "blockchain",
+      "indexer",
+      "eclesia"
+    ],
     "timezone": "browser",
     "schemaVersion": 16,
     "version": 0,
@@ -101,7 +105,7 @@
         "gridPos": {
           "x": 12,
           "y": 4,
-          "w": 12,
+          "w": 6,
           "h": 4
         },
         "targets": [
@@ -276,6 +280,56 @@
             "show": true
           }
         ]
+      },
+      {
+        "id": 11,
+        "title": "Indexer State",
+        "type": "stat",
+        "gridPos": {
+          "x": 18,
+          "y": 4,
+          "w": 6,
+          "h": 4
+        },
+        "targets": [
+          {
+            "expr": "indexer_waiting_for_blocks",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "0": {
+                    "text": "INDEXING",
+                    "color": "green"
+                  },
+                  "1": {
+                    "text": "WAITING FOR BLOCKS",
+                    "color": "blue"
+                  }
+                }
+              }
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "textMode": "value"
+        }
       }
     ]
   }

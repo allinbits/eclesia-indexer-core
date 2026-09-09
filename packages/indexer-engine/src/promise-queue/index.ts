@@ -1,8 +1,5 @@
 /**
- * Implements an "infinite" FIFO queue of fixed size using promises
- * - await `continue()` before enqueing items to ensure fixed size (resolves when space available)
- * - await `dequeue()` to pop an item (resolves when next item is available)
- * - size() is always at minimum 1 item which is the promise for the next enqueued item
+ * @deprecated Not used by the engine; CircularBuffer is the block queue. Kept for compatibility, removed in 3.0.
  */
 export class PromiseQueue<T> {
   /** Optional error handler for enqueue failures */
@@ -161,6 +158,15 @@ export class CircularBuffer<T> {
   }
 
   enqueue(item: T | PromiseLike<T>) {
+    if (this.count >= this.batchSize) {
+      // Overwriting would silently drop the oldest unprocessed block; callers must await continue()
+      const error = new Error("CircularBuffer is full (" + this.batchSize + " slots); await continue() before enqueueing");
+      if (this.errorHandler) {
+        this.errorHandler(error);
+        return;
+      }
+      throw error;
+    }
     try {
       this.enqueuer(item);
       const nextVal = new Promise<T>((resolve, _reject) => {
@@ -188,6 +194,10 @@ export class CircularBuffer<T> {
   }
 
   dequeue() {
+    if (this.count <= 0) {
+      // The only pending slot (the sentinel) has already been handed out
+      throw new Error("CircularBuffer is empty; the previous dequeue() has not been fulfilled yet");
+    }
     const item = this.items[this.next];
     this.next++;
     this.count--;

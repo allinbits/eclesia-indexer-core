@@ -1,7 +1,6 @@
 import {
   createHash,
 } from "node:crypto";
-import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   fileURLToPath,
@@ -17,10 +16,10 @@ import {
   TxData as TxData38,
 } from "@cosmjs/tendermint-rpc/build/comet38/responses.js";
 import {
-  PgIndexer,
+  loadMigrations, PgIndexer,
 } from "@eclesia/basic-pg-indexer";
 import {
-  EcleciaIndexer, Types,
+  EclesiaIndexer, Types,
 } from "@eclesia/indexer-engine";
 import {
   Utils, Validation,
@@ -43,7 +42,7 @@ const __dirname = path.dirname(__filename);
  * including gas usage, signatures, messages, and performance metrics
  */
 export class FullBlocksModule implements Types.IndexingModule {
-  indexer!: EcleciaIndexer;
+  indexer!: EclesiaIndexer;
 
   private pgIndexer!: PgIndexer;
 
@@ -71,31 +70,7 @@ export class FullBlocksModule implements Types.IndexingModule {
    * Creates tables for blocks, transactions, and block time averages
    */
   async setup() {
-    await this.pgIndexer.beginTransaction();
-    const client = this.pgIndexer.getInstance();
-
-    // Check if the blocks table already exists
-    const exists = await client.query(
-      "SELECT EXISTS ( SELECT FROM pg_tables WHERE  schemaname = 'public' AND tablename  = 'blocks')",
-    );
-
-    if (!exists.rows[0].exists) {
-      this.indexer.log.warn("Database not configured");
-      // Load and execute the full schema SQL file
-      const base = fs.readFileSync(__dirname + "/./sql/full.sql").toString();
-      try {
-        await client.query(base);
-        this.indexer.log.info("DB has been set up");
-        await this.pgIndexer.endTransaction(true);
-      }
-      catch (e) {
-        await this.pgIndexer.endTransaction(false);
-        throw new Error("" + e);
-      }
-    }
-    else {
-      await this.pgIndexer.endTransaction(true);
-    }
+    await this.pgIndexer.applyMigrations(this.name, loadMigrations(path.join(__dirname, "sql", "full")), "blocks");
   }
 
   /**

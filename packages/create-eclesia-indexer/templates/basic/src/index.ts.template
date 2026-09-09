@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 import {
   defaultRegistryTypes,
 } from "@cosmjs/stargate";
@@ -16,10 +18,12 @@ const config: PgIndexerConfig = {
   pollingInterval: 3000,
   processGenesis: process.env.PROCESS_GENESIS == "true" || false,
   minimal: process.env.MINIMAL == "true" || false,
-  genesisPath: "./genesis.json",  
+  // Only validated by the engine when set, so leave it out unless genesis is processed
+  genesisPath: process.env.PROCESS_GENESIS == "true" ? (process.env.GENESIS_PATH || "./genesis.json") : undefined,
   enablePrometheus: process.env.ENABLE_PROMETHEUS == "true" || false,
   prometheusPort: Number(process.env.PROMETHEUS_PORT) || {{PROMETHEUS_PORT}},
-  dbConnectionString: process.env.PG_CONNECTION_STRING || "{{PG_CONNECTION_STRING}}",
+  // The real connection string, with its password, lives in .env
+  dbConnectionString: process.env.PG_CONNECTION_STRING || "postgres://postgres@localhost:5432/indexer",
 };
 
 // Initialize protocol registry
