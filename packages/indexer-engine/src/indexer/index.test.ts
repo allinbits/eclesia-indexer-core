@@ -300,6 +300,70 @@ describe("subscription and chain checks", () => {
     await other.stop();
   });
 
+  it("ignores the completion of a previous run's subscription while restarting", async () => {
+    const indexer = makeIndexer({
+      usePolling: false,
+    });
+    indexer["started"] = true;
+    indexer["runGeneration"] = 1;
+    const previous = indexer["makeBlockListener"](1);
+
+    // A restart has begun: the new run bumps the generation, then disconnects the old client,
+    // which completes the old subscription
+    indexer["runGeneration"] = 2;
+    previous.complete();
+    expect(indexer["tryToRecover"]).toBe(false);
+
+    // The current run's own subscription closing is still a real recovery
+    const current = indexer["makeBlockListener"](2);
+    current.complete();
+    expect(indexer["tryToRecover"]).toBe(true);
+    await indexer.stop();
+  });
+
+  it("detaches the block listener before closing the previous connection", async () => {
+    const indexer = makeIndexer({
+      usePolling: false,
+    });
+    const order: string[] = [];
+    const listeners = new Set<unknown>();
+    const subscription = {
+      addListener: (l: unknown) => {
+        listeners.add(l);
+      },
+      removeListener: (l: unknown) => {
+        order.push("removeListener");
+        listeners.delete(l);
+      },
+    };
+    const oldClient = {
+      ...stubClient(),
+      disconnect: vi.fn(() => {
+        order.push("disconnect");
+        // CometBFT completes every subscription when the socket closes
+        for (const l of listeners) {
+          (l as {
+            complete: () => void
+          }).complete();
+        }
+      }),
+    };
+    indexer["started"] = true;
+    indexer["runGeneration"] = 3;
+    indexer["blockListener"] = indexer["makeBlockListener"](3);
+    subscription.addListener(indexer["blockListener"]);
+    indexer["subscription"] = subscription as never;
+    indexer.client = oldClient as never;
+    indexer.blockClient = oldClient as never;
+    indexer["connectWithTimeout"] = vi.fn(async () => stubClient() as never);
+
+    expect(await indexer.connect()).toBe(true);
+
+    expect(order.slice(0, 2)).toEqual(["removeListener", "disconnect"]);
+    expect(indexer["tryToRecover"]).toBe(false);
+    await indexer.stop();
+  });
+
   it("refuses a chain other than the configured one", async () => {
     const indexer = makeIndexer({
       chainId: "atomone-1",
