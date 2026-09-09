@@ -1,5 +1,7 @@
 # @eclesia/indexer-engine
 
+## 2.16.1
+
 ## 2.16.0
 
 ### Minor Changes
