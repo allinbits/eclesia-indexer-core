@@ -500,26 +500,39 @@ export class EclesiaIndexer extends EclesiaEmitter {
     }
   }
 
-  private blockListener = {
-    next: (data: {
-      header: {
-        height: number
-      }
-    }) => {
-      this.newBlockReceived(data.header.height);
-    },
-    error: (error: unknown) => {
-      this.log.error("Block subscription error", {
-        error,
-      });
-      this.requestRecovery("block subscription errored");
-    },
-    complete: () => {
-      if (this.started) {
-        this.requestRecovery("block subscription closed by the node");
-      }
-    },
-  };
+  /**
+   * Builds the listener for one run's block subscription. It carries the generation it was
+   * created for, so when a restart disconnects the previous client and that subscription
+   * completes, the completion is attributed to the finished run and ignored instead of
+   * poisoning the run that is starting.
+   */
+  private makeBlockListener(generation: number) {
+    return {
+      next: (data: {
+        header: {
+          height: number
+        }
+      }) => {
+        if (generation === this.runGeneration) {
+          this.newBlockReceived(data.header.height);
+        }
+      },
+      error: (error: unknown) => {
+        this.log.error("Block subscription error", {
+          error,
+        });
+        this.requestRecovery("block subscription errored", generation);
+      },
+      complete: () => {
+        if (this.started) {
+          this.requestRecovery("block subscription closed by the node", generation);
+        }
+      },
+    };
+  }
+
+  /** Listener attached to the current block subscription */
+  private blockListener = this.makeBlockListener(0);
 
   private isMinimal(_blockqueue: BlockQueue): _blockqueue is MinimalBlockQueue {
     if (this.config.minimal) {
@@ -534,6 +547,15 @@ export class EclesiaIndexer extends EclesiaEmitter {
     try {
       if (this.client) {
         this.log.verbose("Recover from error. Attempting to disconnect from RPC");
+        // Detach first: closing the socket completes the subscription, and that completion
+        // must not be mistaken for the node dropping us
+        if (this.subscription) {
+          try {
+            this.subscription.removeListener(this.blockListener);
+          }
+          catch (_e) { /* empty */ }
+          this.subscription = null;
+        }
         try {
           this.client.disconnect();
         }
@@ -693,6 +715,7 @@ export class EclesiaIndexer extends EclesiaEmitter {
         this.subscription = this.client.subscribeNewBlock
           ? this.client.subscribeNewBlock()
           : null;
+        this.blockListener = this.makeBlockListener(this.runGeneration);
       }
       const status: StatusResponse = await withTimeout(this.client.status(), RPC_TIMEOUT_MS, new RPCError("RPC status call timed out"));
       this.assertChainId(status.nodeInfo.network);
