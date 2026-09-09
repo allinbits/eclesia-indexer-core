@@ -1,5 +1,5 @@
 import {
-  expect, test,
+  expect, test, vi,
 } from "vitest";
 
 import {
@@ -8,67 +8,77 @@ import {
 
 /**
  * Test suite for EclesiaEmitter event handling functionality
- * Verifies proper event registration, handler counting, and unhandled event routing
+ * Verifies handler counting, removal of exactly what was registered, and unhandled routing
  */
-test(
-  "Handling of emit types", () => {
-    // Create emitter with typed event map
-    const emitter = new EclesiaEmitter<{
-      test: string
-      test2: number
-    }>();
+test("handled counts follow on() and off() of the registered handlers", () => {
+  const emitter = new EclesiaEmitter();
+  const first = () => {};
+  const second = () => {};
 
-    // Register first handler for 'test' event
-    emitter.on(
-      "test", (_arg) => {
-        // Empty handler for testing
-      },
-    );
-    expect(emitter.handled.get("test")).toBe(1);
+  emitter.on("log", first);
+  expect(emitter.handled.get("log")).toBe(1);
+  emitter.on("log", second);
+  expect(emitter.handled.get("log")).toBe(2);
+  emitter.on("tx_memo", () => {});
+  expect(emitter.handled.get("tx_memo")).toBe(1);
 
-    // Register second handler for 'test' event
-    emitter.on(
-      "test", (_arg) => {
-        // Empty handler for testing
-      },
-    );
-    expect(emitter.handled.get("test")).toBe(2);
+  // A function that was never registered must not change the count
+  emitter.off("log", () => {});
+  expect(emitter.handled.get("log")).toBe(2);
 
-    // Register handler for 'test2' event
-    emitter.on(
-      "test2", (_arg) => {
-        // Empty handler for testing
-      },
-    );
-    expect(emitter.handled.get("test2")).toBe(1);
+  emitter.off("log", first);
+  expect(emitter.handled.get("log")).toBe(1);
+  emitter.off("log", second);
+  expect(emitter.handled.get("log")).toBeFalsy();
+});
 
-    // Remove one 'test' handler
-    emitter.off(
-      "test", (_arg) => {
-        // Empty handler for testing
-      },
-    );
-    expect(emitter.handled.get("test")).toBe(1);
+test("the same handler registered twice needs two off() calls", () => {
+  const emitter = new EclesiaEmitter();
+  const handler = vi.fn();
 
-    // Remove last 'test' handler
-    emitter.off(
-      "test", (_arg) => {
-        // Empty handler for testing
-      },
-    );
-    expect(emitter.handled.get("test")).toBeFalsy();
+  emitter.on("log", handler);
+  emitter.on("log", handler);
+  expect(emitter.handled.get("log")).toBe(2);
 
-    // Test unhandled event routing
-    emitter.on(
-      "_unhandled", (arg) => {
-        expect(arg.type).toBe("test");
-        expect(arg.event).toBe("Hello world");
-      },
-    );
+  emitter.off("log", handler);
+  expect(emitter.handled.get("log")).toBe(1);
+  emitter.emit("log", {
+    type: "info",
+    message: "still delivered",
+  });
+  expect(handler).toHaveBeenCalledTimes(1);
 
-    // Emit to unhandled event (no handlers registered for 'test')
-    emitter.emit(
-      "test", "Hello world",
-    );
-  },
-);
+  emitter.off("log", handler);
+  expect(emitter.handled.get("log")).toBeFalsy();
+});
+
+test("events without handlers are routed to _unhandled", () => {
+  const emitter = new EclesiaEmitter();
+  const unhandled = vi.fn();
+  emitter.on("_unhandled", unhandled);
+
+  emitter.emit("log", {
+    type: "info",
+    message: "Hello world",
+  });
+
+  expect(unhandled).toHaveBeenCalledTimes(1);
+  expect(unhandled.mock.calls[0][0].type).toBe("log");
+  expect(unhandled.mock.calls[0][0].event).toEqual({
+    type: "info",
+    message: "Hello world",
+  });
+});
+
+test("handlersFor returns the raw handlers in registration order and tracks off()", () => {
+  const emitter = new EclesiaEmitter();
+  const a = () => {};
+  const b = () => {};
+  emitter.on("log", a);
+  emitter.on("log", b);
+  emitter.on("log", a);
+  expect(emitter.handlersFor("log")).toEqual([a, b, a]);
+  emitter.off("log", a);
+  expect(emitter.handlersFor("log")).toEqual([a, b]);
+  expect(emitter.handlersFor("tx_memo")).toEqual([]);
+});

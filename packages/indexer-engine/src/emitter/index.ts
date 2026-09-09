@@ -17,8 +17,22 @@ export class EclesiaEmitter {
   /** Map tracking the number of handlers registered for each event type */
   public handled = new Map<string, number>();
 
-  /** WeakMap storing wrapper functions for proper cleanup */
-  private handlerMap = new WeakMap();
+  /** Wrappers registered per handler and event name, so off() removes exactly what on() added */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private handlerMap = new WeakMap<object, Map<string, Array<(eventData: any) => Promise<void>>>>();
+
+  /** Raw handlers per event name in registration order, for callers that await them one by one */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private rawHandlers = new Map<string, Array<(eventData: any) => unknown>>();
+
+  /**
+   * Handlers registered for an event, in registration order.
+   * @param eventName - Event name
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  handlersFor(eventName: string): ReadonlyArray<(eventData: any) => unknown> {
+    return this.rawHandlers.get(eventName) ?? [];
+  }
 
   /**
    * Creates a new EclesiaEmitter instance
@@ -96,9 +110,14 @@ export class EclesiaEmitter {
         }
       }
     };
-    this.handlerMap.set(
-      handler, wrapper,
-    );
+    const byEvent = this.handlerMap.get(handler) ?? new Map();
+    const wrappers = byEvent.get(eventName) ?? [];
+    wrappers.push(wrapper);
+    byEvent.set(eventName, wrappers);
+    this.handlerMap.set(handler, byEvent);
+    const raw = this.rawHandlers.get(eventName) ?? [];
+    raw.push(handler as (eventData: unknown) => unknown);
+    this.rawHandlers.set(eventName, raw);
     this.emitter.on(
       eventName, wrapper,
     );
@@ -108,6 +127,21 @@ export class EclesiaEmitter {
     eventName: TEventName,
     handler: (eventArg: WithHeightAndUUID<EventMap>[TEventName]) => void,
   ) {
+    const wrappers = this.handlerMap.get(handler)?.get(eventName);
+    if (!wrappers || wrappers.length === 0) {
+      // Never registered for this event: nothing to remove, and the handled count must not
+      // drop, or emit() would route to _unhandled while real handlers are still attached
+      return;
+    }
+    const wrapper = wrappers.pop()!;
+    this.emitter.off(
+      eventName, wrapper,
+    );
+    const raw = this.rawHandlers.get(eventName) ?? [];
+    const index = raw.lastIndexOf(handler as (eventData: unknown) => unknown);
+    if (index >= 0) {
+      raw.splice(index, 1);
+    }
     const count = this.handled.get(eventName);
     if (count && count > 1) {
       this.handled.set(
@@ -116,13 +150,6 @@ export class EclesiaEmitter {
     }
     else {
       this.handled.delete(eventName);
-    }
-    const wrapper = this.handlerMap.get(handler);
-    if (wrapper) {
-      this.emitter.off(
-        eventName, wrapper,
-      );
-      this.handlerMap.delete(handler);
     }
   }
 }

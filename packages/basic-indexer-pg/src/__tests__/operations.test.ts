@@ -9,6 +9,7 @@ import {
   PgIndexer,
 } from "../index";
 import {
+  createMockModule,
   createTestConfig, MockClient,
 } from "./test-setup";
 
@@ -30,12 +31,12 @@ vi.mock("pg", () => ({
   Client: vi.fn(function () { return mockClient; }),
 }));
 
-// Mock the EcleciaIndexer
+// Mock the EclesiaIndexer
 vi.mock("@eclesia/indexer-engine", async () => {
   const actual = await vi.importActual<typeof import("@eclesia/indexer-engine")>("@eclesia/indexer-engine");
   return {
     ...actual,
-    EcleciaIndexer: vi.fn().mockImplementation(function () {
+    EclesiaIndexer: vi.fn().mockImplementation(function () {
       return {
         log: {
           info: vi.fn(),
@@ -47,6 +48,8 @@ vi.mock("@eclesia/indexer-engine", async () => {
         },
         connect: vi.fn().mockResolvedValue(true),
         start: vi.fn().mockResolvedValue(undefined),
+        whenStopped: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn(),
       };
     }),
   };
@@ -124,16 +127,8 @@ describe("PgIndexer Runtime Operations", () => {
 
     it("should call setup on all modules", async () => {
       const config = createTestConfig();
-      const mockModule1 = {
-        name: "module-1",
-        init: vi.fn(),
-        setup: vi.fn().mockResolvedValue(undefined),
-      };
-      const mockModule2 = {
-        name: "module-2",
-        init: vi.fn(),
-        setup: vi.fn().mockResolvedValue(undefined),
-      };
+      const mockModule1 = createMockModule("module-1");
+      const mockModule2 = createMockModule("module-2");
 
       const indexer = new PgIndexer(config, [mockModule1, mockModule2]);
       await indexer.setup();
@@ -142,21 +137,13 @@ describe("PgIndexer Runtime Operations", () => {
       expect(mockModule2.setup).toHaveBeenCalled();
     });
 
-    it("should connect and start during run", async () => {
+    it("should start the engine during run", async () => {
       const config = createTestConfig();
       const indexer = new PgIndexer(config);
+
       await indexer.run();
 
-      expect(indexer.indexer.connect).toHaveBeenCalled();
       expect(indexer.indexer.start).toHaveBeenCalled();
-    });
-
-    it("should throw error if RPC connection fails during run", async () => {
-      const config = createTestConfig();
-      const indexer = new PgIndexer(config);
-      indexer.indexer.connect = vi.fn().mockResolvedValue(false) as MockedFunction<() => Promise<boolean>>;
-
-      await expect(indexer.run()).rejects.toThrow("Could not connect to RPC");
     });
   });
 
@@ -166,7 +153,7 @@ describe("PgIndexer Runtime Operations", () => {
       const indexer = new PgIndexer(config);
 
       const endCallback = mockClient.on.mock.calls.find(
-        (call: [string, () => void]) => call[0] === "end",
+        (call: unknown[]) => call[0] === "end",
       )?.[1];
 
       if (endCallback) {
@@ -183,7 +170,7 @@ describe("PgIndexer Runtime Operations", () => {
       const indexer = new PgIndexer(config);
 
       const errorCallback = mockClient.on.mock.calls.find(
-        (call: [string, (err: Error) => void]) => call[0] === "error",
+        (call: unknown[]) => call[0] === "error",
       )?.[1];
 
       const testError = new Error("Database error");
@@ -191,9 +178,9 @@ describe("PgIndexer Runtime Operations", () => {
         errorCallback(testError);
       }
 
-      expect(indexer.indexer.log.error).toHaveBeenCalledWith(
-        "Error in db: " + testError,
-      );
+      expect(indexer.indexer.log.error).toHaveBeenCalledWith("Error in db", {
+        error: testError,
+      });
     });
 
     it("should reconnect after disconnection when getNextHeight is called", async () => {
@@ -209,7 +196,7 @@ describe("PgIndexer Runtime Operations", () => {
       expect(mockClient.connect).toHaveBeenCalledTimes(1);
 
       const endCallback = mockClient.on.mock.calls.find(
-        (call: [string, () => void]) => call[0] === "end",
+        (call: unknown[]) => call[0] === "end",
       )?.[1];
 
       if (endCallback) {
@@ -218,6 +205,59 @@ describe("PgIndexer Runtime Operations", () => {
 
       await indexer.getNextHeight();
       expect(mockClient.connect).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("fatal-error", () => {
+    it("stops and exits the process by default", async () => {
+      const config = createTestConfig();
+      const indexer = new PgIndexer(config);
+      const handler = (indexer.indexer.on as unknown as ReturnType<typeof vi.fn>).mock.calls.find((call: unknown[]) => call[0] === "fatal-error")?.[1];
+      expect(handler).toBeDefined();
+      const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+      const stop = vi.spyOn(indexer, "stop").mockResolvedValue(undefined);
+
+      await handler({
+        error: new Error("Block 42 failed 5 times in a row"),
+        message: "Block processing is stuck",
+        height: 42,
+      });
+
+      expect(stop).toHaveBeenCalled();
+      expect(exit).toHaveBeenCalledWith(1);
+      exit.mockRestore();
+    });
+
+    it("does not exit when exitOnFatal is false", async () => {
+      const indexer = new PgIndexer({
+        ...createTestConfig(),
+        exitOnFatal: false,
+      });
+      const handler = (indexer.indexer.on as unknown as ReturnType<typeof vi.fn>).mock.calls.find((call: unknown[]) => call[0] === "fatal-error")?.[1];
+      const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+      vi.spyOn(indexer, "stop").mockResolvedValue(undefined);
+
+      await handler({
+        error: new Error("x"),
+        message: "y",
+      });
+
+      expect(exit).not.toHaveBeenCalled();
+      exit.mockRestore();
+    });
+  });
+
+  describe("silly-mode client", () => {
+    it("forwards every client method, not only query", () => {
+      const indexer = new PgIndexer({
+        ...createTestConfig(),
+        logLevel: "silly",
+      });
+      const client = indexer.getInstance();
+      expect(typeof client.query).toBe("function");
+      expect(typeof client.connect).toBe("function");
+      expect(typeof client.end).toBe("function");
+      expect(typeof client.on).toBe("function");
     });
   });
 });

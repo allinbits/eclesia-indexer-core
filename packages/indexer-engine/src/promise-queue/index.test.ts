@@ -105,7 +105,8 @@ describe(
 
     it(
       "should resolve continue when space is available", async () => {
-        const queue = new CircularBuffer<number>(2);
+        // capacity is batchSize - 1 items plus the sentinel slot, so 3 holds two items
+        const queue = new CircularBuffer<number>(3);
         queue.enqueue(1);
         queue.enqueue(2);
         const continuePromise = queue.continue();
@@ -121,6 +122,28 @@ describe(
         expect(queue.isEmpty()).toBe(false); // Initial promise exists
         queue.dequeue();
         expect(queue.isEmpty()).toBe(false);
+      },
+    );
+
+    it(
+      "should refuse to overwrite when full and report it through the error handler", async () => {
+        const errors: unknown[] = [];
+        const queue = new CircularBuffer<number>(3, e => errors.push(e));
+        queue.enqueue(1);
+        queue.enqueue(2); // two items plus the sentinel slot: the buffer is full
+        queue.enqueue(3);
+        expect(errors.length).toBe(1);
+        expect(String(errors[0])).toContain("full");
+        await expect(queue.dequeue()).resolves.toBe(1);
+        await expect(queue.dequeue()).resolves.toBe(2);
+      },
+    );
+
+    it(
+      "should throw when dequeueing without a pending item", () => {
+        const queue = new CircularBuffer<number>(3);
+        queue.dequeue(); // the sentinel, legitimately pending
+        expect(() => queue.dequeue()).toThrow("empty");
       },
     );
 

@@ -6,6 +6,9 @@ import fse from "fs-extra";
 const {
   ensureDirSync, copySync, writeFileSync, readFileSync,
 } = fse;
+import {
+  randomBytes,
+} from "node:crypto";
 import path, {
   resolve,
 } from "node:path";
@@ -41,6 +44,23 @@ interface ProjectConfig {
   packageManager: "npm" | "yarn" | "pnpm"
 }
 
+/** npm package name rules, restricted to what also works as a directory and a bin name */
+const PROJECT_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{0,212}[a-z0-9])?$/;
+const CHAIN_PREFIX_PATTERN = /^[a-z][a-z0-9]*$/;
+const CHAIN_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/;
+
+export function validateProjectName(value: string): true | string {
+  if (!PROJECT_NAME_PATTERN.test(value)) {
+    return "Use lowercase letters, digits, dots, hyphens or underscores (an npm package name without a scope); no slashes or spaces.";
+  }
+  return true;
+}
+
+/** Random secret safe for .env files and connection strings (URL-safe base64, no padding) */
+function generateSecret(bytes: number): string {
+  return randomBytes(bytes).toString("base64url");
+}
+
 const availableModules = [
   {
     name: "Auth",
@@ -73,6 +93,12 @@ const minimalAvailableModules = [
 ];
 
 export async function createIndexer(initialProjectName?: string): Promise<void> {
+  if (initialProjectName !== undefined) {
+    const valid = validateProjectName(initialProjectName);
+    if (valid !== true) {
+      throw new Error("Invalid project name '" + initialProjectName + "': " + valid);
+    }
+  }
   const config = await gatherProjectInfo(initialProjectName);
   const targetDir = resolve(process.cwd(), config.projectName);
 
@@ -98,7 +124,10 @@ export async function createIndexer(initialProjectName?: string): Promise<void> 
   console.log(colors.cyan(`  cd ${config.projectName}`));
   console.log(colors.cyan(`  ${config.packageManager} local-dev:start # To run a self-contained local development environment with Postgres`));
   console.log();
-  console.log("If you want to run the indexer against an external Postgres database instead of the local development environment, set the database connection string in the .env file.");
+  console.log("Credentials for the local environment (Postgres password, Hasura admin secret) were generated into .env. To use an external Postgres instead, change PG_CONNECTION_STRING there.");
+  if (config.modules.includes("Bank") && !config.processGenesis) {
+    console.log(colors.yellow("Bank module without genesis processing: balances are tracked as changes since the start height, not absolute amounts."));
+  }
   console.log();
   console.log(colors.cyan(`  ${config.packageManager} start # To run the indexer`));
   console.log();
@@ -114,24 +143,28 @@ async function gatherProjectInfo(initialProjectName?: string): Promise<ProjectCo
       message: "Project name:",
       initial: initialProjectName || "my-indexer",
       skip: !!initialProjectName,
+      validate: validateProjectName,
     },
     {
       type: "input",
       name: "chainName",
       message: "Chain name:",
       initial: "cosmos-hub",
+      validate: (value: string) => CHAIN_NAME_PATTERN.test(value) || "Use letters, digits, spaces, dots, hyphens or underscores.",
     },
     {
       type: "input",
       name: "chainPrefix",
       message: "Chain address prefix:",
       initial: "cosmos",
+      validate: (value: string) => CHAIN_PREFIX_PATTERN.test(value) || "A bech32 prefix is lowercase letters and digits, starting with a letter.",
     },
     {
       type: "input",
       name: "description",
       message: "Description:",
       initial: "A custom Cosmos SDK chain indexer",
+      validate: (value: string) => !/[\r\n]/.test(value) || "Keep the description on one line.",
     },
     {
       type: "input",
@@ -271,10 +304,15 @@ async function copyTemplateFiles(config: ProjectConfig, targetDir: string): Prom
       if (src.includes("Dockerfile")) {
         return false;
       }
+      if (src.endsWith("_gitignore")) {
+        return false;
+      }
       return true;
     },
   });
   copySync(resolve(templatesDir, "Dockerfile." + config.packageManager), targetDir + "/Dockerfile");
+  // Stored without the leading dot so npm does not rewrite it when the CLI is published
+  copySync(resolve(templatesDir, "_gitignore"), targetDir + "/.gitignore");
   // Copy template files
   const templateFiles = ["package.json.template", "src/index.ts.template", "tsconfig.json.template", "docker-compose.yml.template", "README.md.template", ".env.template"];
 
@@ -301,12 +339,17 @@ async function processTemplates(config: ProjectConfig, targetDir: string): Promi
   if (url.protocol === "http:" || url.protocol === "https:") {
     polling = true;
   }
+  // Generated once per project and written only to .env, which is git-ignored
+  const postgresPassword = generateSecret(18);
+  const hasuraAdminSecret = generateSecret(24);
   const templateVars = {
     PROJECT_NAME: config.projectName,
     CHAIN_NAME: config.chainName,
     DESCRIPTION: config.description,
     RPC_ENDPOINT: config.rpcEndpoint,
-    PG_CONNECTION_STRING: "postgres://postgres:password@postgres:5432/indexer",
+    PG_CONNECTION_STRING: "postgres://postgres:" + postgresPassword + "@localhost:5432/indexer",
+    POSTGRES_PASSWORD: postgresPassword,
+    HASURA_ADMIN_SECRET: hasuraAdminSecret,
     LOG_LEVEL: config.logLevel,
     QUEUE_SIZE: config.queueSize.toString(),
     USE_POLLING: polling ? "true" : "false",
@@ -333,9 +376,18 @@ async function processTemplates(config: ProjectConfig, targetDir: string): Promi
     try {
       let content = readFileSync(filePath, "utf-8");
 
+      // Without genesis processing there is no genesis.json to mount; binding a missing host
+      // path would make Docker create an empty directory under that name
+      if (file === "docker-compose.yml" && !config.processGenesis) {
+        content = content.replace(/\n {4}volumes:\n {6}- \{\{GENESIS_PATH\}\}:[^\n]*\n/, "\n");
+      }
+
       Object.entries(templateVars).forEach(([key, value]) => {
         const regex = new RegExp(`{{${key}}}`, "g");
-        content = content.replace(regex, value);
+        // Placeholders in package.json sit inside JSON strings; escape for that context. A
+        // replacer function keeps "$&"-style patterns in user input literal.
+        const replacement = file === "package.json" ? JSON.stringify(value).slice(1, -1) : value;
+        content = content.replace(regex, () => replacement);
       });
 
       writeFileSync(filePath, content);
@@ -353,7 +405,7 @@ function generateModulesImport(config: ProjectConfig): string {
   if (config.modules.includes("Auth")) {
     imports.push("  AuthModule");
   }
-  if (config.modules.includes("Bank") && config.startHeight === 1 && config.processGenesis) {
+  if (config.modules.includes("Bank")) {
     imports.push("  BankModule");
   }
   if (config.modules.includes("Staking") && !config.minimal) {
@@ -375,7 +427,7 @@ function generateModulesInstantiation(config: ProjectConfig): string {
   if (config.modules.includes("Auth")) {
     instantiations.push("const authModule = new AuthModule(registry);");
   }
-  if (config.modules.includes("Bank") && config.startHeight === 1 && config.processGenesis) {
+  if (config.modules.includes("Bank")) {
     instantiations.push("const bankModule = new BankModule(registry);");
   }
   if (config.modules.includes("Staking") && !config.minimal) {
@@ -393,13 +445,13 @@ function generateModulesArray(config: ProjectConfig): string {
   if (config.modules.includes("Auth")) {
     moduleNames.push("authModule");
   }
-  if (config.modules.includes("Bank") && config.startHeight === 1 && config.processGenesis) {
+  if (config.modules.includes("Bank")) {
     moduleNames.push("bankModule");
   }
   if (config.modules.includes("Staking") && !config.minimal) {
     moduleNames.push("stakingModule");
   }
-  return `[${moduleNames.filter(m => !m.includes("//")).join(", ")}]`;
+  return `[${moduleNames.join(", ")}]`;
 }
 
 async function installDependencies(config: ProjectConfig, targetDir: string): Promise<void> {
@@ -437,7 +489,7 @@ async function buildProject(config: ProjectConfig, targetDir: string): Promise<v
 
     child.on("close", (code) => {
       if (code !== 0) {
-        reject(new Error(`Package installation failed with code ${code}`));
+        reject(new Error(`Build failed with code ${code}`));
       }
       else {
         resolve();

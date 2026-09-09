@@ -3,15 +3,17 @@ import {
 } from "vitest";
 
 import {
-  createBenchmarkIndexer,
+  createBenchmarkIndexer, runUntilHeight,
 } from "./helpers.js";
 
 /**
- * Benchmarks for block processing performance
- * Measures data structure operations and block processing throughput
+ * Block processing throughput of the engine alone: blocks come from the in-memory mock RPC
+ * client and the transaction callbacks are no-ops, so the numbers measure fetch scheduling,
+ * decoding, event dispatch and the start/stop lifecycle, not database or network cost.
+ * Each iteration starts an indexer, processes every block, and tears the indexer down.
  */
 
-describe.sequential("Block Data Processing - 100 blocks - No listeners", () => {
+describe.sequential("Block processing throughput (mock RPC, no database)", () => {
   bench("Process 100 blocks (10tx/block) - No listeners", async () => {
     const {
       indexer,
@@ -22,20 +24,7 @@ describe.sequential("Block Data Processing - 100 blocks - No listeners", () => {
       endHeight: 100,
       mockRpc: true,
     });
-    indexer.start();
-    let resolver: (value: unknown) => void;
-    const done = new Promise((resolve) => {
-      resolver = resolve;
-    });
-    indexer.on("block", (data: {
-      height: number
-    }) => {
-      if (data.height >= 100) {
-        resolver(true);
-      }
-    });
-    await done;
-    indexer.stop();
+    await runUntilHeight(indexer, 100);
   }, {
     iterations: 5,
     warmupIterations: 5,
@@ -52,20 +41,7 @@ describe.sequential("Block Data Processing - 100 blocks - No listeners", () => {
       batchSize: 100,
       mockRpc: true,
     });
-    indexer.start();
-    let resolver: (value: unknown) => void;
-    const done = new Promise((resolve) => {
-      resolver = resolve;
-    });
-    indexer.on("block", (data: {
-      height: number
-    }) => {
-      if (data.height >= 100) {
-        resolver(true);
-      }
-    });
-    await done;
-    indexer.stop();
+    await runUntilHeight(indexer, 100);
   }, {
     iterations: 5,
     warmupIterations: 5,
@@ -82,25 +58,12 @@ describe.sequential("Block Data Processing - 100 blocks - No listeners", () => {
       batchSize: 100,
       mockRpc: true,
     });
-    indexer.start();
-    let resolver: (value: unknown) => void;
-    const done = new Promise((resolve) => {
-      resolver = resolve;
-    });
     for (let i = 0; i < 10; i++) {
       indexer.on("/cosmos.bank.v1beta1.MsgSend", async (_data: unknown) => {
         return await Promise.resolve();
       });
     }
-    indexer.on("block", (data: {
-      height: number
-    }) => {
-      if (data.height >= 100) {
-        resolver(true);
-      }
-    });
-    await done;
-    indexer.stop();
+    await runUntilHeight(indexer, 100);
   }, {
     iterations: 5,
     warmupIterations: 5,
@@ -117,25 +80,12 @@ describe.sequential("Block Data Processing - 100 blocks - No listeners", () => {
       batchSize: 100,
       mockRpc: true,
     });
-    indexer.start();
-    let resolver: (value: unknown) => void;
-    const done = new Promise((resolve) => {
-      resolver = resolve;
-    });
     for (let i = 0; i < 10; i++) {
       indexer.on("/cosmos.bank.v1beta1.MsgSend", async (_data: unknown) => {
         return await Promise.resolve();
       });
     }
-    indexer.on("block", (data: {
-      height: number
-    }) => {
-      if (data.height >= 100) {
-        resolver(true);
-      }
-    });
-    await done;
-    indexer.stop();
+    await runUntilHeight(indexer, 100);
   }, {
     iterations: 5,
     warmupIterations: 5,
@@ -152,25 +102,12 @@ describe.sequential("Block Data Processing - 100 blocks - No listeners", () => {
       batchSize: 100,
       mockRpc: true,
     });
-    indexer.start();
-    let resolver: (value: unknown) => void;
-    const done = new Promise((resolve) => {
-      resolver = resolve;
-    });
     for (let i = 0; i < 20; i++) {
       indexer.on("/cosmos.bank.v1beta1.MsgSend", async (_data: unknown) => {
         return await Promise.resolve();
       });
     }
-    indexer.on("block", (data: {
-      height: number
-    }) => {
-      if (data.height >= 100) {
-        resolver(true);
-      }
-    });
-    await done;
-    indexer.stop();
+    await runUntilHeight(indexer, 100);
   }, {
     iterations: 5,
     warmupIterations: 5,
@@ -183,22 +120,10 @@ describe.sequential("Block Data Processing - 100 blocks - No listeners", () => {
       blockCount: 1000,
       txsPerBlock: 10,
       batchSize: 300,
+      endHeight: 1000,
       mockRpc: true,
     });
-    indexer.start();
-    let resolver: (value: unknown) => void;
-    const done = new Promise((resolve) => {
-      resolver = resolve;
-    });
-    indexer.on("block", (data: {
-      height: number
-    }) => {
-      if (data.height >= 1000) {
-        resolver(true);
-      }
-    });
-    await done;
-    indexer.stop();
+    await runUntilHeight(indexer, 1000);
   }, {
     iterations: 5,
     warmupIterations: 5,
@@ -211,22 +136,10 @@ describe.sequential("Block Data Processing - 100 blocks - No listeners", () => {
       blockCount: 1000,
       txsPerBlock: 100,
       batchSize: 300,
+      endHeight: 1000,
       mockRpc: true,
     });
-    indexer.start();
-    let resolver: (value: unknown) => void;
-    const done = new Promise((resolve) => {
-      resolver = resolve;
-    });
-    indexer.on("block", (data: {
-      height: number
-    }) => {
-      if (data.height >= 1000) {
-        resolver(true);
-      }
-    });
-    await done;
-    indexer.stop();
+    await runUntilHeight(indexer, 1000);
   }, {
     iterations: 5,
     warmupIterations: 5,
@@ -239,27 +152,15 @@ describe.sequential("Block Data Processing - 100 blocks - No listeners", () => {
       blockCount: 1000,
       txsPerBlock: 10,
       batchSize: 300,
+      endHeight: 1000,
       mockRpc: true,
-    });
-    indexer.start();
-    let resolver: (value: unknown) => void;
-    const done = new Promise((resolve) => {
-      resolver = resolve;
     });
     for (let i = 0; i < 10; i++) {
       indexer.on("/cosmos.bank.v1beta1.MsgSend", async (_data: unknown) => {
         return await Promise.resolve();
       });
     }
-    indexer.on("block", (data: {
-      height: number
-    }) => {
-      if (data.height >= 1000) {
-        resolver(true);
-      }
-    });
-    await done;
-    indexer.stop();
+    await runUntilHeight(indexer, 1000);
   }, {
     iterations: 5,
     warmupIterations: 5,
@@ -272,27 +173,15 @@ describe.sequential("Block Data Processing - 100 blocks - No listeners", () => {
       blockCount: 1000,
       txsPerBlock: 100,
       batchSize: 300,
+      endHeight: 1000,
       mockRpc: true,
-    });
-    indexer.start();
-    let resolver: (value: unknown) => void;
-    const done = new Promise((resolve) => {
-      resolver = resolve;
     });
     for (let i = 0; i < 10; i++) {
       indexer.on("/cosmos.bank.v1beta1.MsgSend", async (_data: unknown) => {
         return await Promise.resolve();
       });
     }
-    indexer.on("block", (data: {
-      height: number
-    }) => {
-      if (data.height >= 1000) {
-        resolver(true);
-      }
-    });
-    await done;
-    indexer.stop();
+    await runUntilHeight(indexer, 1000);
   }, {
     iterations: 5,
     warmupIterations: 5,

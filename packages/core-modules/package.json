@@ -8,7 +8,7 @@
     "postbuild": "copyfiles -u 1 \"src/**/*.sql\" dist",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "test": "vitest",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "files": [
@@ -18,39 +18,46 @@
   "contributors": [
     "Alex M.<alex.megalokonomos@tendermint.com>"
   ],
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/allinbits/eclesia-indexer-core.git",
+    "directory": "packages/core-modules"
+  },
+  "homepage": "https://github.com/allinbits/eclesia-indexer-core#readme",
+  "bugs": {
+    "url": "https://github.com/allinbits/eclesia-indexer-core/issues"
+  },
   "devDependencies": {
-    "@arethetypeswrong/core": "^0.18.2",
-    "@eclesia/basic-pg-indexer": "workspace:*",
-    "@eclesia/indexer-engine": "workspace:*",
-    "@eslint/js": "^9.39.1",
-    "@stylistic/eslint-plugin": "^5.5.0",
+    "@arethetypeswrong/core": "^0.18.5",
+    "@eslint/js": "^9.39.5",
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@types/json-bigint": "^1.0.4",
-    "@types/lru-cache": "^7.10.10",
-    "@types/node": "^24.10.0",
-    "@types/pg": "^8.15.6",
+    "@types/node": "^24.13.3",
+    "@types/pg": "^8.23.1",
     "copyfiles": "^2.4.1",
-    "eslint": "^9.39.1",
+    "eslint": "^9.39.5",
     "eslint-plugin-simple-import-sort": "^12.1.1",
-    "pg": "^8.16.3",
-    "tsdown": "^0.16.0",
+    "pg": "^8.23.0",
+    "tsdown": "^0.16.8",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.46.3",
-    "vitest": "^4.0.7"
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^4.1.11"
   },
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
     "@atomone/atomone-types": "^4.0.2",
-    "@cosmjs/encoding": "^0.36.0",
-    "@cosmjs/proto-signing": "^0.36.0",
-    "@cosmjs/tendermint-rpc": "^0.36.0",
+    "@cosmjs/proto-signing": "^0.36.2",
+    "@cosmjs/tendermint-rpc": "^0.36.2",
+    "@eclesia/basic-pg-indexer": "workspace:^",
+    "@eclesia/indexer-engine": "workspace:^",
     "bech32": "^2.0.0",
     "bignumber.js": "^9.3.1",
     "cosmjs-types": "^0.10.1",
-    "json-with-bigint": "^3.4.4",
-    "lru-cache": "^11.2.2"
+    "json-with-bigint": "^3.5.12",
+    "lru-cache": "^11.5.2"
   },
   "exports": {
     ".": {

@@ -79,7 +79,7 @@ mkdir -p src/modules/ibc_module/sql
 
 ## Step 4: Create the Database Schema
 
-Create the file `src/modules/ibc_module/sql/module.sql` with the following content:
+Create the file `src/modules/ibc_module/sql/001_initial.sql` with the following content. Module schemas are numbered migrations: this first file creates the tables, and any later change goes in `002_...sql`, `003_...sql` and so on. They are applied once, in order, and recorded in the `schema_migrations` table.
 
 ```sql
 CREATE TABLE ibc_statistics
@@ -107,7 +107,6 @@ CREATE INDEX ibc_statistics_height_index ON ibc_statistics (height DESC NULLS LA
 Create the file `src/modules/ibc_module/index.ts` with the following content:
 
 ```typescript
-import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   fileURLToPath,
@@ -117,7 +116,7 @@ import {
   GeneratedType,
 } from "@cosmjs/proto-signing";
 import {
-  PgIndexer,
+  loadMigrations, PgIndexer,
 } from "@eclesia/basic-pg-indexer";
 import {
   EcleciaIndexer, Types,
@@ -155,28 +154,9 @@ export class IbcModule implements Types.IndexingModule {
   }
 
   async setup() {
-    await this.pgIndexer.beginTransaction();
-    const client = this.pgIndexer.getInstance();
-    // Check if our table already exists and if not, create it
-    const exists = await client.query(
-      "SELECT EXISTS ( SELECT FROM pg_tables WHERE  schemaname = 'public' AND tablename  = 'ibc_statistics')",
-    );
-    if (!exists.rows[0].exists) {
-      this.indexer.log.warn("Database not configured");
-      const base = fs.readFileSync(__dirname + "/./sql/module.sql").toString();
-      try {
-        await client.query(base);
-        this.indexer.log.info("DB has been set up");
-        await this.pgIndexer.endTransaction(true);
-      }
-      catch (e) {
-        await this.pgIndexer.endTransaction(false);
-        throw new Error("" + e);
-      }
-    }
-    else {
-      await this.pgIndexer.endTransaction(true);
-    }
+    // Apply this module's numbered migrations from ./sql; "ibc_statistics" is the table the
+    // first migration creates, used to recognise a database that predates migration tracking
+    await this.pgIndexer.applyMigrations(this.name, loadMigrations(path.join(__dirname, "sql")), "ibc_statistics");
   }
 
   init(pgIndexer: PgIndexer): void {
@@ -256,7 +236,7 @@ export class IbcModule implements Types.IndexingModule {
 
 ## Step 6: Register Custom Events
 
-Create the file `src/events.d.ts` to augment TypeScript types:
+Events from the engine and from the core modules are already typed: both packages ship a global `EventMap` augmentation. Your own module's events are not known to it yet, so create the file `src/events.d.ts` to add them:
 
 ```typescript
 import {

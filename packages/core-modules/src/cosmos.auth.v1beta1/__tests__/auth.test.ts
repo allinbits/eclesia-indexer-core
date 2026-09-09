@@ -2,7 +2,13 @@ import {
   PgIndexer,
 } from "@eclesia/basic-pg-indexer";
 import {
-  beforeEach, describe, expect, it, vi,
+  ModuleAccount,
+} from "cosmjs-types/cosmos/auth/v1beta1/auth.js";
+import {
+  QueryModuleAccountsResponse,
+} from "cosmjs-types/cosmos/auth/v1beta1/query.js";
+import {
+  afterEach, beforeEach, describe, expect, it, vi,
 } from "vitest";
 
 import {
@@ -35,6 +41,7 @@ const mockPgIndexer = {
   }),
   beginTransaction: vi.fn().mockResolvedValue(undefined),
   endTransaction: vi.fn().mockResolvedValue(undefined),
+  applyMigrations: vi.fn().mockResolvedValue(0),
   indexer: {
     log: mockLog,
     on: mockOn,
@@ -68,38 +75,28 @@ describe("AuthModule", () => {
   });
 
   describe("setup", () => {
-    it("should skip setup if table already exists", async () => {
-      mockQuery.mockResolvedValueOnce({
-        rows: [
-          {
-            exists: true,
-          },
-        ],
-      });
-
+    it("applies the module's migrations through the indexer", async () => {
       authModule.init(mockPgIndexer as unknown as PgIndexer);
+
       await authModule.setup();
 
-      expect(mockPgIndexer.beginTransaction).toHaveBeenCalled();
-      expect(mockPgIndexer.endTransaction).toHaveBeenCalledWith(true);
-      expect(mockLog.warn).not.toHaveBeenCalled();
+      expect(mockPgIndexer.applyMigrations).toHaveBeenCalledWith(
+        authModule.name,
+        expect.arrayContaining([
+          expect.objectContaining({
+            version: 1,
+            name: "initial",
+          }),
+        ]),
+        "accounts",
+      );
     });
 
-    it("should handle setup errors gracefully", async () => {
-      mockQuery
-        .mockResolvedValueOnce({
-          rows: [
-            {
-              exists: false,
-            },
-          ],
-        })
-        .mockRejectedValueOnce(new Error("SQL error"));
-
+    it("propagates migration failures", async () => {
       authModule.init(mockPgIndexer as unknown as PgIndexer);
+      mockPgIndexer.applyMigrations.mockRejectedValueOnce(new Error("Migration 2 failed"));
 
-      await expect(authModule.setup()).rejects.toThrow("SQL error");
-      expect(mockPgIndexer.endTransaction).toHaveBeenCalledWith(false);
+      await expect(authModule.setup()).rejects.toThrow("Migration 2 failed");
     });
   });
 
@@ -195,7 +192,7 @@ describe("AuthModule", () => {
       authModule.init(mockPgIndexer as unknown as PgIndexer);
 
       const genesisHandler = mockOn.mock.calls.find(
-        (call: [string, (event: unknown) => Promise<void>]) => call[0] === "genesis/array/app_state.auth.accounts",
+        (call: unknown[]) => call[0] === "genesis/array/app_state.auth.accounts",
       )?.[1];
 
       mockQuery.mockResolvedValue(undefined);
@@ -228,7 +225,7 @@ describe("AuthModule", () => {
       authModule.init(mockPgIndexer as unknown as PgIndexer);
 
       const genesisHandler = mockOn.mock.calls.find(
-        (call: [string, (event: unknown) => Promise<void>]) => call[0] === "genesis/array/app_state.auth.accounts",
+        (call: unknown[]) => call[0] === "genesis/array/app_state.auth.accounts",
       )?.[1];
 
       mockQuery.mockResolvedValue(undefined);
@@ -259,7 +256,7 @@ describe("AuthModule", () => {
       authModule.init(mockPgIndexer as unknown as PgIndexer);
 
       const genesisHandler = mockOn.mock.calls.find(
-        (call: [string, (event: unknown) => Promise<void>]) => call[0] === "genesis/array/app_state.auth.accounts",
+        (call: unknown[]) => call[0] === "genesis/array/app_state.auth.accounts",
       )?.[1];
 
       mockQuery.mockResolvedValue(undefined);
@@ -294,6 +291,170 @@ describe("AuthModule", () => {
         text: "INSERT INTO accounts(address) SELECT * FROM UNNEST($1::text[]) ON CONFLICT DO NOTHING",
         values: [["cosmos1vestingaccount", "cosmos1continuousvesting"]],
       });
+    });
+
+    it("resolves every standard wrapper shape and skips unknown ones instead of inserting NULL", async () => {
+      authModule.init(mockPgIndexer as unknown as PgIndexer);
+
+      const genesisHandler = mockOn.mock.calls.find(
+        (call: unknown[]) => call[0] === "genesis/array/app_state.auth.accounts",
+      )?.[1];
+
+      mockQuery.mockResolvedValue(undefined);
+
+      const event = {
+        value: [
+          {
+            "@type": "/cosmos.vesting.v1beta1.PeriodicVestingAccount",
+            base_vesting_account: {
+              base_account: {
+                address: "cosmos1periodic",
+              },
+            },
+          },
+          {
+            "@type": "/cosmos.vesting.v1beta1.PermanentLockedAccount",
+            base_vesting_account: {
+              base_account: {
+                address: "cosmos1locked",
+              },
+            },
+          },
+          {
+            "@type": "/ethermint.types.v1.EthAccount",
+            base_account: {
+              address: "evmos1eth",
+            },
+          },
+          {
+            "@type": "/ibc.applications.interchain_accounts.v1.InterchainAccount",
+            base_account: {
+              address: "cosmos1ica",
+            },
+          },
+          {
+            "@type": "/some.chain.v1.OpaqueAccount",
+            inner: {
+              address: "cosmos1unreachable",
+            },
+          },
+        ],
+      };
+
+      if (genesisHandler) {
+        await genesisHandler(event);
+      }
+
+      expect(mockQuery).toHaveBeenCalledWith({
+        name: "assert_accounts",
+        text: "INSERT INTO accounts(address) SELECT * FROM UNNEST($1::text[]) ON CONFLICT DO NOTHING",
+        values: [["cosmos1periodic", "cosmos1locked", "evmos1eth", "cosmos1ica"]],
+      });
+      expect(mockLog.warn).toHaveBeenCalledWith(expect.stringContaining("/some.chain.v1.OpaqueAccount"));
+    });
+  });
+
+  describe("module account snapshot", () => {
+    const moduleAccountsResponse = (addresses: string[]) => QueryModuleAccountsResponse.encode(QueryModuleAccountsResponse.fromPartial({
+      accounts: addresses.map(address => ({
+        typeUrl: "/cosmos.auth.v1beta1.ModuleAccount",
+        value: ModuleAccount.encode(ModuleAccount.fromPartial({
+          baseAccount: {
+            address,
+          },
+          name: address,
+        })).finish(),
+      })),
+    })).finish();
+    const blockEvent = (height: number) => ({
+      value: {
+        block: {
+          block: {
+            header: {
+              height,
+            },
+          },
+        },
+      },
+      height,
+    });
+    let bank: {
+      getGenesisBalance: ReturnType<typeof vi.fn>
+      saveBalance: ReturnType<typeof vi.fn>
+    };
+
+    beforeEach(() => {
+      bank = {
+        getGenesisBalance: vi.fn().mockResolvedValue([
+          {
+            denom: "uatom",
+            amount: "42",
+          },
+        ]),
+        saveBalance: vi.fn().mockResolvedValue(undefined),
+      };
+      (mockPgIndexer.modules as Record<string, unknown>)["cosmos.bank.v1beta1"] = bank;
+      mockQuery.mockImplementation(async (sql: string) => (typeof sql === "string" && sql.includes("FROM blocks")
+        ? {
+          rowCount: 1,
+          rows: [
+            {
+            },
+          ],
+        }
+        : {
+          rowCount: 0,
+          rows: [
+            {
+              exists: false,
+            },
+          ],
+        }));
+      authModule.init(mockPgIndexer as unknown as PgIndexer);
+    });
+
+    afterEach(() => {
+      delete (mockPgIndexer.modules as Record<string, unknown>)["cosmos.bank.v1beta1"];
+    });
+
+    const blockHandler = () => mockOn.mock.calls.find(
+      (call: unknown[]) => call[0] === "block",
+    )?.[1];
+
+    it("writes each module account's end-of-block-1 balance at height 1 when block 2 starts", async () => {
+      mockPgIndexer.indexer.callABCI.mockResolvedValue(moduleAccountsResponse(["cosmos1feecollector", "cosmos1distribution"]));
+
+      await blockHandler()!(blockEvent(2));
+
+      expect(mockPgIndexer.indexer.callABCI).toHaveBeenCalledWith("/cosmos.auth.v1beta1.Query/ModuleAccounts", expect.any(Uint8Array));
+      expect(bank.saveBalance.mock.calls.map(call => [call[0], call[2]])).toEqual([["cosmos1feecollector", 1], ["cosmos1distribution", 1]]);
+      expect(bank.getGenesisBalance).toHaveBeenCalledTimes(2);
+    });
+
+    it("does nothing on other heights", async () => {
+      await blockHandler()!(blockEvent(1));
+      await blockHandler()!(blockEvent(3));
+      expect(mockPgIndexer.indexer.callABCI).not.toHaveBeenCalled();
+      expect(bank.saveBalance).not.toHaveBeenCalled();
+    });
+
+    it("skips the snapshot when block 1 was never indexed", async () => {
+      mockQuery.mockImplementation(async () => ({
+        rowCount: 0,
+        rows: [],
+      }));
+      await blockHandler()!(blockEvent(2));
+      expect(mockPgIndexer.indexer.callABCI).not.toHaveBeenCalled();
+    });
+
+    it("falls back to well-known names when the chain lacks the ModuleAccounts query", async () => {
+      mockPgIndexer.indexer.callABCI.mockRejectedValueOnce(new Error("ABCI query failed with code 6: unknown request"));
+      vi.spyOn(authModule, "getModuleAccount").mockImplementation(async name => (name === "fee_collector" ? "cosmos1feecollector" : undefined));
+
+      await blockHandler()!(blockEvent(2));
+
+      expect(mockLog.warn).toHaveBeenCalledWith(expect.stringContaining("falling back"), expect.anything());
+      expect(bank.saveBalance.mock.calls.map(call => call[0])).toEqual(["cosmos1feecollector"]);
     });
   });
 });

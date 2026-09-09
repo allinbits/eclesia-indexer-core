@@ -1,0 +1,7 @@
+node_modules
+dist
+.env
+*.log
+.git
+# mounted at runtime by docker-compose, never baked into the image
+genesis.json

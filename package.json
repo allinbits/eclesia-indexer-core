@@ -1,7 +1,7 @@
 {
   "name": "@eclesia/eclesia-indexer-core",
   "version": "1.4.0",
-  "description": "",
+  "description": "Modular indexing framework for Cosmos SDK chains: engine, PostgreSQL storage, core modules and project scaffolder",
   "scripts": {
     "build": "pnpm recursive run --sort build",
     "lint": "pnpm recursive run --sort lint",
@@ -9,6 +9,9 @@
     "typecheck": "pnpm recursive run --sort typecheck",
     "test": "pnpm recursive run --sort test",
     "test:e2e": "vitest run --config tests/vitest.config.ts",
+    "changeset": "changeset",
+    "version:packages": "changeset version && pnpm install --lockfile-only",
+    "release": "pnpm build && changeset publish",
     "bench": "pnpm recursive run --sort --stream bench",
     "typedoc": "typedoc",
     "audit": "pnpm audit",
@@ -17,20 +20,36 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "packages/**/*.{ts,tsx}": [
-      "pnpm lint:fix"
-    ]
+    "packages/indexer-engine/**/*.ts": "pnpm --filter @eclesia/indexer-engine exec eslint --fix",
+    "packages/basic-indexer-pg/**/*.ts": "pnpm --filter @eclesia/basic-pg-indexer exec eslint --fix",
+    "packages/core-modules/**/*.ts": "pnpm --filter @eclesia/core-modules-pg exec eslint --fix",
+    "packages/create-eclesia-indexer/src/**/*.ts": "pnpm --filter create-eclesia-indexer exec eslint --fix"
   },
   "keywords": [],
-  "author": "",
+  "author": "AllInBits Inc.",
   "private": true,
-  "license": "ISC",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/allinbits/eclesia-indexer-core.git"
+  },
+  "homepage": "https://github.com/allinbits/eclesia-indexer-core#readme",
+  "bugs": {
+    "url": "https://github.com/allinbits/eclesia-indexer-core/issues"
+  },
   "devDependencies": {
-    "@changesets/cli": "^2.29.7",
-    "@types/node": "^24.10.0",
+    "@changesets/changelog-github": "^1.0.1",
+    "@changesets/cli": "^2.31.1",
+    "@eclesia/basic-pg-indexer": "workspace:*",
+    "@eclesia/core-modules-pg": "workspace:*",
+    "@eclesia/indexer-engine": "workspace:*",
+    "@types/node": "^24.13.3",
+    "@types/pg": "^8.15.6",
     "husky": "^9.1.7",
-    "lint-staged": "^16.2.6",
-    "typedoc": "^0.28.14",
-    "vitest": "^4.0.7"
-  }
+    "lint-staged": "^16.4.0",
+    "pg": "^8.16.3",
+    "typedoc": "^0.28.20",
+    "vitest": "^4.1.11"
+  },
+  "packageManager": "pnpm@10.33.0"
 }

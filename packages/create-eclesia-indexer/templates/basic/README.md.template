@@ -15,7 +15,7 @@ A custom indexer for **{{CHAIN_NAME}}** built with eclesia-indexer-core.
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 22+
 - PostgreSQL 12+
 - Access to {{CHAIN_NAME}} RPC endpoint
 
@@ -27,14 +27,15 @@ A custom indexer for **{{CHAIN_NAME}}** built with eclesia-indexer-core.
    ```
 
 2. **Set up environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
+
+   The scaffolder wrote a `.env` file with your answers, a generated Postgres password and a
+   generated Hasura admin secret. It is loaded automatically at startup and read by
+   `docker compose`; edit it to change the RPC endpoint, database connection string or log level.
+   Keep it out of version control (the generated `.gitignore` already does).
 
 3. **Start PostgreSQL** (if using Docker)
    ```bash
-   docker-compose up postgres -d
+   docker compose up postgres -d
    ```
 
 4. **Run the indexer**
@@ -56,10 +57,10 @@ Configure your indexer through environment variables or directly in `src/index.t
 ## Docker Deployment
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-This will start both PostgreSQL and the indexer in containers.
+This will start PostgreSQL, the indexer and a Hasura GraphQL console (on port 8080) in containers. The console asks for the admin secret from `.env`.
 
 ## Development
 
@@ -71,7 +72,7 @@ npm run build # Build for production
 
 ## Database Schema
 
-The indexer automatically creates the necessary database tables on startup. You can find migration files in the `src/migrations/` directory (if applicable).
+The indexer creates the tables each module needs the first time it starts against an empty database.
 
 ## Adding Custom Modules
 
@@ -102,7 +103,7 @@ To add custom indexing logic:
 
 ## License
 
-ISC
+This project is generated from and links against eclesia-indexer-core, which is distributed under the GNO Network General Public License (a modified AGPL). The same license is included as `LICENSE.md`.
 
 ## Support
 

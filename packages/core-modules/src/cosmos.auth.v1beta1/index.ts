@@ -1,4 +1,3 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   fileURLToPath,
@@ -8,17 +7,16 @@ import {
   GeneratedType,
 } from "@cosmjs/proto-signing";
 import {
-  PgIndexer,
+  loadMigrations, PgIndexer,
 } from "@eclesia/basic-pg-indexer";
 import {
-  EcleciaIndexer, Types,
+  EclesiaIndexer, Types,
 } from "@eclesia/indexer-engine";
 import {
   ModuleAccount,
 } from "cosmjs-types/cosmos/auth/v1beta1/auth.js";
 import {
-  QueryModuleAccountByNameRequest,
-  QueryModuleAccountByNameResponse,
+  QueryModuleAccountByNameRequest, QueryModuleAccountByNameResponse, QueryModuleAccountsRequest, QueryModuleAccountsResponse,
 } from "cosmjs-types/cosmos/auth/v1beta1/query.js";
 
 import {
@@ -28,6 +26,9 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/** Module account names looked up individually when the chain predates the ModuleAccounts query */
+export const WELL_KNOWN_MODULE_ACCOUNTS = ["fee_collector", "inflation", "transfer", "mint", "bonded_tokens_pool", "not_bonded_tokens_pool", "gov", "distribution", "ibc"] as const;
+
 export type Events = {
 
   "genesis/array/app_state.auth.accounts": {
@@ -36,8 +37,35 @@ export type Events = {
   }
 };
 
+/** Shape shared by every account type exported to genesis: the bech32 address sits at one of three depths */
+export type GenesisAccount = {
+  "@type"?: string
+  address?: string
+  base_account?: {
+    address?: string
+  }
+  base_vesting_account?: {
+    base_account?: {
+      address?: string
+    }
+  }
+};
+
+/**
+ * Resolves the address of any genesis account regardless of its wrapper type:
+ * BaseAccount (top level), ModuleAccount / EthAccount / InterchainAccount (base_account),
+ * and every x/auth/vesting type (base_vesting_account.base_account).
+ * @param account - Raw genesis account object
+ * @returns The bech32 address, or undefined if the shape is unknown
+ */
+export const genesisAccountAddress = (account: GenesisAccount | null | undefined): string | undefined => {
+  return account?.address
+    ?? account?.base_account?.address
+    ?? account?.base_vesting_account?.base_account?.address;
+};
+
 export class AuthModule implements Types.IndexingModule {
-  indexer!: EcleciaIndexer;
+  indexer!: EclesiaIndexer;
 
   private pgIndexer!: PgIndexer;
 
@@ -54,27 +82,7 @@ export class AuthModule implements Types.IndexingModule {
   }
 
   async setup() {
-    await this.pgIndexer.beginTransaction();
-    const client = this.pgIndexer.getInstance();
-    const exists = await client.query(
-      "SELECT EXISTS ( SELECT FROM pg_tables WHERE  schemaname = 'public' AND tablename  = 'accounts')",
-    );
-    if (!exists.rows[0].exists) {
-      this.indexer.log.warn("Database not configured");
-      const base = fs.readFileSync(__dirname + "/./sql/module.sql").toString();
-      try {
-        await client.query(base);
-        this.indexer.log.info("DB has been set up");
-        await this.pgIndexer.endTransaction(true);
-      }
-      catch (e) {
-        await this.pgIndexer.endTransaction(false);
-        throw new Error("" + e);
-      }
-    }
-    else {
-      await this.pgIndexer.endTransaction(true);
-    }
+    await this.pgIndexer.applyMigrations(this.name, loadMigrations(path.join(__dirname, "sql")), "accounts");
   }
 
   init(pgIndexer: PgIndexer): void {
@@ -86,63 +94,26 @@ export class AuthModule implements Types.IndexingModule {
     }
 
     this.indexer.on("block", async (event): Promise<void> => {
-      if (event.value.block.block.header.height == 1) {
-        /*
-         Module accounts and module account balances are created/set during processing of gen txs.
-         We have no events for those so we query/set them explicitly prior to processing block #1
-        */
-        const moduleAccounts: string[] = [];
-        let acc = await this.getModuleAccount("fee_collector");
-        if (acc) {
-          moduleAccounts.push(acc);
+      /*
+       Module accounts and their balances are created during InitChain and the first block, and no
+       events describe them. Once block 1 has been fully processed and committed (that is, when
+       block 2 starts) we snapshot every module account's balance as of the end of block 1. Doing
+       it at the start of block 1 double-counted block 1's own flows; doing it at the end of block
+       1 raced the bank module's end_block handler.
+      */
+      if (event.value.block.block.header.height == 2 && this.pgIndexer.modules && this.pgIndexer.modules["cosmos.bank.v1beta1"]) {
+        const db = this.pgIndexer.getInstance();
+        const first = await db.query("SELECT 1 FROM blocks WHERE height = 1");
+        if (!first.rowCount) {
+          this.indexer.log.debug("Block 1 is not indexed, skipping the module account balance snapshot");
+          return;
         }
-        acc = await this.getModuleAccount("inflation");
-        if (acc) {
-          moduleAccounts.push(acc);
-        }
-        acc = await this.getModuleAccount("transfer");
-        if (acc) {
-          moduleAccounts.push(acc);
-        }
-        acc = await this.getModuleAccount("mint");
-        if (acc) {
-          moduleAccounts.push(acc);
-        }
-        acc = await this.getModuleAccount("bonded_tokens_pool");
-        if (acc) {
-          moduleAccounts.push(acc);
-        }
-        acc = await this.getModuleAccount("not_bonded_tokens_pool");
-        if (acc) {
-          moduleAccounts.push(acc);
-        }
-        acc = await this.getModuleAccount("gov");
-        if (acc) {
-          moduleAccounts.push(acc);
-        }
-        acc = await this.getModuleAccount("distribution");
-        if (acc) {
-          moduleAccounts.push(acc);
-        }
-        acc = await this.getModuleAccount("ibc");
-        if (acc) {
-          moduleAccounts.push(acc);
-        }
-        for (let k = 0; k < moduleAccounts.length; k++) {
-          await this.assertAccount(moduleAccounts[k]);
-
-          if (this.pgIndexer.modules && this.pgIndexer.modules["cosmos.bank.v1beta1"]) {
-            const balance = await (this.pgIndexer.modules["cosmos.bank.v1beta1"] as BankModule).getGenesisBalance(moduleAccounts[k]);
-            if (balance.length > 0) {
-              await this.indexer.asyncEmit("genesis/array/app_state.bank.balances", {
-                value: [
-                  {
-                    address: moduleAccounts[k],
-                    coins: balance,
-                  },
-                ],
-              });
-            }
+        const bank = this.pgIndexer.modules["cosmos.bank.v1beta1"] as BankModule;
+        for (const address of await this.getModuleAccounts()) {
+          await this.assertAccount(address);
+          const balance = await bank.getGenesisBalance(address);
+          if (balance.length > 0) {
+            await bank.saveBalance(address, balance, 1);
           }
         }
       }
@@ -151,20 +122,13 @@ export class AuthModule implements Types.IndexingModule {
       "genesis/array/app_state.auth.accounts", async (event): Promise<void> => {
         const accounts: string[] = [];
         for (let i = 0; i < event.value.length; i++) {
-          switch (event.value[i]["@type"]) {
-            case "/cosmos.auth.v1beta1.ModuleAccount":
-              accounts.push(event.value[i].base_account.address);
-              break;
-            case "/cosmos.vesting.v1beta1.DelayedVestingAccount":
-              accounts.push(event.value[i].base_vesting_account.base_account.address);
-              break;
-            case "/cosmos.vesting.v1beta1.ContinuousVestingAccount":
-              accounts.push(event.value[i].base_vesting_account.base_account.address);
-              break;
-            default:
-            case "/cosmos.auth.v1beta1.BaseAccount":
-              accounts.push(event.value[i].address);
-              break;
+          const address = genesisAccountAddress(event.value[i]);
+          if (address) {
+            accounts.push(address);
+          }
+          else {
+            // Never push undefined: node-pg would send NULL into the accounts primary key
+            this.indexer.log.warn("Skipping genesis account with unknown shape: " + event.value[i]?.["@type"]);
           }
         }
         await this.assertAccounts(accounts);
@@ -197,6 +161,44 @@ export class AuthModule implements Types.IndexingModule {
       });
     }
     endTimer?.();
+  }
+
+  /**
+   * Addresses of every module account on the chain, from the ModuleAccounts query (SDK 0.46+).
+   * Older chains answer with an error code; then the well-known names are looked up one by one.
+   */
+  async getModuleAccounts(): Promise<string[]> {
+    try {
+      const req = QueryModuleAccountsRequest.encode(QueryModuleAccountsRequest.fromPartial({
+      })).finish();
+      const res = QueryModuleAccountsResponse.decode(await this.indexer.callABCI("/cosmos.auth.v1beta1.Query/ModuleAccounts", req));
+      const addresses = res.accounts
+        .map(account => ModuleAccount.decode(account.value).baseAccount?.address)
+        .filter((address): address is string => !!address);
+      if (addresses.length > 0) {
+        return addresses;
+      }
+    }
+    catch (e) {
+      this.indexer.log.warn("ModuleAccounts query unavailable, falling back to well-known module account names", {
+        error: e,
+      });
+    }
+    const addresses: string[] = [];
+    for (const name of WELL_KNOWN_MODULE_ACCOUNTS) {
+      try {
+        const address = await this.getModuleAccount(name);
+        if (address) {
+          addresses.push(address);
+        }
+      }
+      catch (e) {
+        this.indexer.log.debug("Module account " + name + " could not be resolved", {
+          error: e,
+        });
+      }
+    }
+    return addresses;
   }
 
   async getModuleAccount(name: string) {

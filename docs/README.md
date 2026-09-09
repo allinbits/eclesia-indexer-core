@@ -9,7 +9,7 @@ The project uses TypeDoc to generate API documentation from TypeScript source co
 ### Generate Documentation
 
 ```bash
-pnpm docs
+pnpm typedoc
 ```
 
 This will generate HTML documentation in `docs/api/` directory.
@@ -33,7 +33,7 @@ open http://localhost:8000
 Core indexer engine with block processing, event system, and configuration.
 
 **Key Exports:**
-- `EcleciaIndexer` - Main indexer class
+- `EclesiaIndexer` - Main indexer class (`EcleciaIndexer` remains as a deprecated alias until 3.0)
 - `IndexerMetrics` - Prometheus metrics
 - `Types` - TypeScript type definitions
 - `Utils` - Utility functions
@@ -74,7 +74,7 @@ All modules implement this interface:
 
 ```typescript
 interface IndexingModule {
-  indexer: EcleciaIndexer           // Reference to indexer
+  indexer: EclesiaIndexer           // Reference to indexer
   name: string                       // Unique module identifier
   depends: string[]                  // Module dependencies
   provides: string[]                 // Capabilities provided
@@ -86,11 +86,16 @@ interface IndexingModule {
 ### Example Module Implementation
 
 ```typescript
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { Types } from "@eclesia/indexer-engine";
-import { PgIndexer } from "@eclesia/basic-pg-indexer";
+import { loadMigrations, PgIndexer } from "@eclesia/basic-pg-indexer";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export class CustomModule implements Types.IndexingModule {
-  indexer!: Types.EcleciaIndexer;
+  indexer!: Types.EclesiaIndexer;
   private pgIndexer!: PgIndexer;
 
   name = "custom.module.v1";
@@ -98,9 +103,8 @@ export class CustomModule implements Types.IndexingModule {
   provides = ["custom.module.v1"];
 
   async setup() {
-    // Initialize database schema
-    const db = this.pgIndexer.getInstance();
-    await db.query("CREATE TABLE IF NOT EXISTS custom_data (...)");
+    // Schema lives in numbered SQL files (sql/001_initial.sql, sql/002_...) applied once, in order
+    await this.pgIndexer.applyMigrations(this.name, loadMigrations(path.join(__dirname, "sql")), "custom_data");
   }
 
   init(pgIndexer: PgIndexer) {
@@ -117,10 +121,10 @@ export class CustomModule implements Types.IndexingModule {
 
 ## Type Definitions
 
-### EcleciaIndexerConfig
+### EclesiaIndexerConfig
 
 ```typescript
-type EcleciaIndexerConfig = {
+type EclesiaIndexerConfig = {
   startHeight?: number
   endHeight?: number
   batchSize: number
@@ -128,12 +132,23 @@ type EcleciaIndexerConfig = {
   getNextHeight: () => number | PromiseLike<number>
   logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly"
   rpcUrl: string
+  chainId?: string                  // refuse to index if the RPC reports another network
   shouldProcessGenesis: () => Promise<boolean>
   genesisPath?: string
   usePolling?: boolean
   pollingInterval?: number
   minimal?: boolean
-  healthCheckPort?: number
+  enableHealthcheck?: boolean       // default true
+  healthCheckPort?: number          // default 8888
+  healthCheckHost?: string          // default "0.0.0.0"
+  enablePrometheus?: boolean
+  prometheusPort?: number           // default 9090
+  prometheusHost?: string           // default "0.0.0.0"
+  logFormat?: "text" | "json"       // console output format, default "text"
+  maxRetries?: number               // consecutive failed restarts before fatal-error; unlimited when unset
+  maxFailuresPerBlock?: number      // consecutive failures of one block before fatal-error; default 5
+  onGenesisStart?: () => Promise<void>     // storage hook, before the genesis import writes anything
+  onGenesisComplete?: () => Promise<void>  // storage hook, inside the final genesis transaction
   init?: () => Promise<void>
   beginTransaction: () => Promise<void>
   endTransaction: (status: boolean) => Promise<void>
@@ -144,19 +159,35 @@ type EcleciaIndexerConfig = {
 
 ```typescript
 type PgIndexerConfig = {
-  startHeight: number
+  startHeight?: number              // used only when the database holds no blocks yet
   batchSize: number
   modules: string[]
   rpcUrl: string
   logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly"
-  usePolling: boolean
+  usePolling?: boolean
   processGenesis?: boolean
-  pollingInterval: number
-  minimal: boolean
+  pollingInterval?: number
+  minimal?: boolean
   genesisPath?: string
   dbConnectionString: string
+  synchronousCommit?: boolean       // keep PostgreSQL synchronous_commit on; default false
+  exitOnFatal?: boolean             // exit the process after fatal-error; default true
+  // plus every EclesiaIndexerConfig option above except the transaction callbacks
 }
 ```
+
+### PgIndexer API
+
+| Method | Purpose |
+|--------|---------|
+| `setup()` | Connects to the RPC and runs every module's `setup()` (schema migrations) |
+| `run()` | Connects and starts indexing; resolves when the indexer stops |
+| `stop()` | Stops the engine, closes the RPC clients and HTTP servers, and ends the database connection |
+| `applyMigrations(module, migrations, baselineTable)` | Applies a module's pending numbered migrations, each in its own transaction, recording them in `schema_migrations`; legacy databases are baselined at version 1 |
+| `getInstance()` | The current `pg.Client` for module queries |
+| `beginTransaction()` / `endTransaction(commit)` | Transaction control used by the engine around each block |
+
+`loadMigrations(dir)` reads `NNN_name.sql` files from a directory into the `Migration[]` that `applyMigrations` expects.
 
 ## Event System
 
@@ -168,8 +199,12 @@ The indexer uses an event-driven architecture. Modules can listen to events:
 - `begin_block` - Begin block events
 - `end_block` - End block events
 - `tx_events` - Transaction events
-- `fatal-error` - Fatal error occurred
-- `periodic/50`, `periodic/100`, `periodic/1000` - Periodic events
+- `fatal-error` - Emitted when `maxRetries` is exceeded
+- `periodic/small`, `periodic/medium`, `periodic/large` - Every 50, 100 and 1000 blocks
+- `genesis/array/<json.path>`, `genesis/value/<json.path>` - Streamed from the genesis file when genesis processing is enabled
+- `/<type.url>` (for example `/cosmos.bank.v1beta1.MsgSend`) - One event per message of that type in a successful transaction
+
+Handlers for one event run one after another in registration order, sharing the block's database transaction; the first failure stops the rest and rolls the block back. Every event handler is typed through the global `EventMap`. The engine and `@eclesia/core-modules-pg` ship their augmentations, so core events are typed out of the box; custom modules add theirs with `declare global { interface EventMap extends MyEvents {} }`.
 
 ### Custom Events
 

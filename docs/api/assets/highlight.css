@@ -18,7 +18,7 @@
     --light-hl-8: #098658;
     --dark-hl-8: #B5CEA8;
     --light-hl-9: #AF00DB;
-    --dark-hl-9: #CE92A4;
+    --dark-hl-9: #C586C0;
     --light-code-background: #FFFFFF;
     --dark-code-background: #1E1E1E;
 }
@@ -89,4 +89,4 @@
 .hl-7 { color: var(--hl-7); }
 .hl-8 { color: var(--hl-8); }
 .hl-9 { color: var(--hl-9); }
-pre, code { background: var(--code-background); }
+pre, code, math[display='block'] { background: var(--code-background); }

@@ -15,10 +15,22 @@ const calculateGas = (block: BlockResultsResponse | BlockResultsResponse38): big
   }, 0n);
 };
 
+/**
+ * JSON.stringify that survives blockchain payloads: bigints become decimal strings and raw
+ * bytes (CometBFT 0.34 event attributes, keys) become base64, as the node's own JSON does,
+ * instead of an object with one key per byte.
+ */
 const BigintStringify = (obj: unknown): string => {
   return JSON.stringify(obj,
-    (key, value) => (typeof value === "bigint" ? value.toString() : value), // return everything else unchanged
-  );
+    (key, value) => {
+      if (typeof value === "bigint") {
+        return value.toString();
+      }
+      if (value instanceof Uint8Array) {
+        return Buffer.from(value).toString("base64");
+      }
+      return value;
+    });
 };
 
 export {
