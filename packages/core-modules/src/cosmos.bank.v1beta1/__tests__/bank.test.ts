@@ -182,6 +182,94 @@ describe("BankModule", () => {
     });
   });
 
+  describe("eventHandler", () => {
+    const attrs = (pairs: Record<string, string>) => Object.entries(pairs).map(([key, value]) => ({
+      key,
+      value,
+    }));
+
+    it("applies a mint once: coinbase duplicates the coin_received the keeper already emitted", async () => {
+      bankModule.init(mockPgIndexer as unknown as PgIndexer);
+      const increase = vi.spyOn(bankModule, "increaseBalance").mockResolvedValue(undefined);
+      const decrease = vi.spyOn(bankModule, "decreaseBalance").mockResolvedValue(undefined);
+
+      // The begin-block events the SDK mint module produces: MintCoins then a transfer to the fee collector
+      await bankModule.eventHandler({
+        height: 1722,
+        value: [
+          {
+            type: "coin_received",
+            attributes: attrs({
+              receiver: "cosmos1mint",
+              amount: "3214915uatom",
+            }),
+          },
+          {
+            type: "coinbase",
+            attributes: attrs({
+              minter: "cosmos1mint",
+              amount: "3214915uatom",
+            }),
+          },
+          {
+            type: "coin_spent",
+            attributes: attrs({
+              spender: "cosmos1mint",
+              amount: "3214915uatom",
+            }),
+          },
+          {
+            type: "coin_received",
+            attributes: attrs({
+              receiver: "cosmos1feecollector",
+              amount: "3214915uatom",
+            }),
+          },
+          {
+            type: "transfer",
+            attributes: attrs({
+              recipient: "cosmos1feecollector",
+              sender: "cosmos1mint",
+              amount: "3214915uatom",
+            }),
+          },
+        ],
+      });
+
+      expect(increase.mock.calls).toEqual([["cosmos1mint", "3214915uatom", 1722], ["cosmos1feecollector", "3214915uatom", 1722]]);
+      expect(decrease.mock.calls).toEqual([["cosmos1mint", "3214915uatom", 1722]]);
+    });
+
+    it("applies a burn once: burn duplicates the coin_spent the keeper already emitted", async () => {
+      bankModule.init(mockPgIndexer as unknown as PgIndexer);
+      const increase = vi.spyOn(bankModule, "increaseBalance").mockResolvedValue(undefined);
+      const decrease = vi.spyOn(bankModule, "decreaseBalance").mockResolvedValue(undefined);
+
+      await bankModule.eventHandler({
+        height: 900,
+        value: [
+          {
+            type: "coin_spent",
+            attributes: attrs({
+              spender: "cosmos1gov",
+              amount: "512000000uatom",
+            }),
+          },
+          {
+            type: "burn",
+            attributes: attrs({
+              burner: "cosmos1gov",
+              amount: "512000000uatom",
+            }),
+          },
+        ],
+      });
+
+      expect(decrease.mock.calls).toEqual([["cosmos1gov", "512000000uatom", 900]]);
+      expect(increase).not.toHaveBeenCalled();
+    });
+  });
+
   describe("saveGenesisBalance", () => {
     beforeEach(() => {
       bankModule.init(mockPgIndexer as unknown as PgIndexer);

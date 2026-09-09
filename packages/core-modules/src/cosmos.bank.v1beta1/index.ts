@@ -134,8 +134,10 @@ export class BankModule implements Types.IndexingModule {
   }
 
   /**
-   * Processes blockchain events to update account balances
-   * Handles coin_spent, coin_received, burn, and coinbase events
+   * Processes blockchain events to update account balances.
+   * Only `coin_spent` and `coin_received` move balances. The SDK's bank keeper emits those for
+   * every transfer, mint and burn; `coinbase` and `burn` are emitted in addition to them (by
+   * MintCoins and BurnCoins), so applying them as well would count every mint and burn twice.
    * @param data - Event data from begin_block, transactions, or end_block
    */
   async eventHandler(data: {
@@ -179,25 +181,6 @@ export class BankModule implements Types.IndexingModule {
           await this.decreaseBalance(spender, amount, data.height);
         }
       }
-      // Handle coin burning events (permanent coin destruction)
-      if (event.type == "burn") {
-        let spender: string | undefined;
-        let amount: string | undefined;
-        for (let j = 0; j < event.attributes.length; j++) {
-          const key = Utils.decodeAttr(event.attributes[j].key);
-          const value = Utils.decodeAttr(event.attributes[j].value);
-          if (key == "burner") {
-            spender = value;
-          }
-          if (key == "amount") {
-            amount = value;
-          }
-        }
-        if (spender && amount) {
-          await this.decreaseBalance(spender, amount, data.height);
-        }
-      }
-
       // Handle coin receiving events (transfers, rewards, etc.)
       if (event.type == "coin_received") {
         let receiver: string | undefined;
@@ -206,25 +189,6 @@ export class BankModule implements Types.IndexingModule {
           const key = Utils.decodeAttr(event.attributes[j].key);
           const value = Utils.decodeAttr(event.attributes[j].value);
           if (key == "receiver") {
-            receiver = value;
-          }
-          if (key == "amount") {
-            amount = value;
-          }
-        }
-        if (receiver && amount) {
-          await this.increaseBalance(receiver, amount, data.height);
-        }
-      }
-
-      // Handle coinbase events (new coin minting)
-      if (event.type == "coinbase") {
-        let receiver: string | undefined;
-        let amount: string | undefined;
-        for (let j = 0; j < event.attributes.length; j++) {
-          const key = Utils.decodeAttr(event.attributes[j].key);
-          const value = Utils.decodeAttr(event.attributes[j].value);
-          if (key == "minter") {
             receiver = value;
           }
           if (key == "amount") {
