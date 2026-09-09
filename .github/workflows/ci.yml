@@ -91,11 +91,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The storage and module packages import the engine through its published entry points,
+      # so the workspace must be built before any of their tests can load
+      - name: Build packages
+        run: pnpm build
+
       - name: Run unit tests
         run: pnpm test
-
-      - name: Build packages for the end-to-end suite
-        run: pnpm build
 
       - name: Run end-to-end tests against PostgreSQL
         run: pnpm test:e2e
