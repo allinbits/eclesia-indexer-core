@@ -48,6 +48,16 @@ export class RPCError extends IndexerError {
   /** The height being queried when error occurred */
   public readonly height?: number;
 
+  /**
+   * ABCI response code when the chain answered a query with an error (pruned height, unknown
+   * path, a panic in the query handler). Undefined when the RPC could not be reached at all,
+   * which lets a module tell "the chain said no" apart from "the node is down".
+   */
+  public readonly abciCode?: number;
+
+  /** ABCI response log that came with abciCode */
+  public readonly abciLog?: string;
+
   constructor(
     message: string,
     endpoint?: string,
@@ -61,6 +71,12 @@ export class RPCError extends IndexerError {
     });
     this.endpoint = endpoint;
     this.height = height;
+    if (typeof context?.abciCode === "number") {
+      this.abciCode = context.abciCode;
+    }
+    if (typeof context?.abciLog === "string") {
+      this.abciLog = context.abciLog;
+    }
   }
 }
 

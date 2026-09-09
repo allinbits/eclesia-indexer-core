@@ -6,6 +6,9 @@ import {
 } from "vitest";
 
 import {
+  RPCError,
+} from "../errors/index.js";
+import {
   EclesiaIndexerConfig,
 } from "../types/index.js";
 import {
@@ -180,9 +183,31 @@ describe("callABCI", () => {
     }));
     indexer.client = client as never;
 
-    await expect(indexer.callABCI("/cosmos.staking.v1beta1.Query/Validators", new Uint8Array(), 5)).rejects.toThrow("code 18");
+    const failure = await indexer.callABCI("/cosmos.staking.v1beta1.Query/Validators", new Uint8Array(), 5).catch(e => e);
+    expect(failure).toBeInstanceOf(RPCError);
+    expect(failure.message).toContain("code 18");
+    // The chain's answer travels with the error, so a module can act on the code instead of the message
+    expect(failure.abciCode).toBe(18);
+    expect(failure.abciLog).toBe("height 5 is not available, lowest height is 100");
+    expect(failure.height).toBe(5);
     // an answered query is not an outage: no recovery for ad-hoc callers
     expect(indexer["tryToRecover"]).toBe(false);
+    await indexer.stop();
+  });
+
+  it("leaves abciCode unset when the RPC cannot be reached", async () => {
+    const indexer = makeIndexer();
+    const client = stubClient();
+    (client as unknown as {
+      abciQuery: unknown
+    }).abciQuery = vi.fn(async () => {
+      throw new Error("socket hang up");
+    });
+    indexer.client = client as never;
+
+    const failure = await indexer.callABCI("/x", new Uint8Array()).catch(e => e);
+    expect(failure).toBeInstanceOf(RPCError);
+    expect(failure.abciCode).toBeUndefined();
     await indexer.stop();
   });
 

@@ -1263,7 +1263,10 @@ export class EclesiaIndexer extends EclesiaEmitter {
     if (abciq.code) {
       // Previously an error reply decoded as an empty result (for example zero validators)
       this.prometheus?.recordError("rpc");
-      throw new RPCError("ABCI query " + path + " failed with code " + abciq.code + (abciq.log ? ": " + abciq.log : ""));
+      throw new RPCError("ABCI query " + path + " failed with code " + abciq.code + (abciq.log ? ": " + abciq.log : ""), path, height, {
+        abciCode: abciq.code,
+        abciLog: abciq.log,
+      });
     }
     return abciq.value;
   }
