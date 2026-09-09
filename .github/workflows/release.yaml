@@ -48,6 +48,11 @@ jobs:
       - name: Install modules
         run: pnpm install --frozen-lockfile
 
+      # The storage and module packages resolve @eclesia/indexer-engine through its published
+      # entry points (dist/), so the workspace must be built before typecheck and tests can run
+      - name: Build
+        run: pnpm build
+
       - name: Verify
         run: |
           pnpm lint
