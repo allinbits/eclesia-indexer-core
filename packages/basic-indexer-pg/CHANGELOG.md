@@ -1,5 +1,31 @@
 # @eclesia/basic-pg-indexer
 
+## 2.16.0
+
+### Minor Changes
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - - On `fatal-error` the indexer stops and exits the process with code 1; `exitOnFatal: false` opts out.
+
+  - Genesis imports are recorded in a `genesis_import` table. A start on top of a partial import is refused with an explanation instead of importing again; a completed import is never repeated even before the first block is stored.
+  - The silly-mode client is a proxy that times `query()` and forwards every other method, so modules see the same client shape at every log level.
+  - Client recycling runs only after a successful commit and outside the transaction error handling, so a recycling failure no longer masks a commit or rollback error.
+  - `run()` no longer opens a separate RPC connection before `start()` opens its own.
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - Every database client is now built by one factory with `error` and `end` listeners attached, and a reconnect after a dropped or failed connection always uses a fresh client. Previously the reconnect path created listener-less clients (a second disconnect crashed the process with an unhandled `error` event) and `beginTransaction` tried to reconnect a client node-postgres refuses to reuse. Adds `PgIndexer.stop()`, which stops the engine and closes the database connection.
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - - `PgIndexer.applyMigrations(module, migrations, baselineTable)` and `loadMigrations(dir)` add versioned schema migrations recorded in a `schema_migrations` table. A database created before migrations existed is baselined at version 1 without re-running it, so existing deployments upgrade in place.
+  - `synchronous_commit` is now set once per connection instead of on every `getInstance()` call, and `synchronousCommit: true` keeps it on.
+  - `getNextHeight()` and `shouldProcessGenesis()` fall back to the engine's default start height when `startHeight` is omitted instead of returning `undefined`.
+
+### Patch Changes
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - Declare `@eclesia/indexer-engine` as a runtime dependency (it was a devDependency, so consumers had to install it themselves) and drop nine dependencies this package never imports.
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - `addModules()` rejects a duplicate module name and any module added after `setup()`, which would otherwise be registered without its schema.
+
+- Updated dependencies [[`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f)]:
+  - @eclesia/indexer-engine@2.16.0
+
 ## 2.14.1
 
 ### Patch Changes
