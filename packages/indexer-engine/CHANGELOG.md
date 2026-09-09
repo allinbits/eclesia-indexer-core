@@ -1,5 +1,54 @@
 # @eclesia/indexer-engine
 
+## 2.16.0
+
+### Minor Changes
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - Resilience, logging and typing:
+
+  - An idle chain is no longer an error. When caught up, the indexer waits for the next block without a timeout and without holding a database transaction, reports `WAITING` on the health endpoint (HTTP 200) and in the new `indexer_waiting_for_blocks` gauge, and checks the chain height every 30 s. Recovery is triggered only when the chain has advanced without a block being announced (a dead subscription) or the RPC is unreachable.
+  - Restarts use exponential backoff from 5 s up to 5 min and are unlimited by default; set `maxRetries` to restore a fatal-error after a fixed number of consecutive failures. Callbacks left over from a previous run can no longer trigger a recovery in the current one.
+  - Logging goes to stdout only. The `error.log` / `combined.log` files in the working directory are gone. Errors keep their stack, `logFormat: "json"` selects JSON output, and the RPC URL is logged with its password masked.
+  - `healthCheckHost` and `prometheusHost` control the bind address of the two HTTP servers (default `0.0.0.0`).
+  - `endHeight` is honoured exactly: the block at `endHeight` is the last one processed and the fetcher stops there.
+  - The global `EventMap` declaration is now emitted into the published types, so consumers get typed `on()` handlers without declaring it themselves.
+  - Genesis parsing moved to stream-json 3 and stream-chain 4, clearing the last production audit advisory. The genesis progress counter now reports real numbers.
+  - A `shouldProcessGenesis()` result of true with no `genesisPath` is logged as a warning instead of being skipped silently.
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - Live-block and lifecycle fixes:
+
+  - WebSocket mode now fetches every height between the last one seen and the announced one, so a NewBlock event skipped by the subscription no longer leaves a permanent hole. Heights at or below the last one seen are ignored instead of moving the cursor backwards.
+  - Polling mode keeps exactly one polling chain across recoveries; previously every restart added another concurrent poller.
+  - `stop()` is now async and actually tears the indexer down: subscription, polling and inactivity timers, both RPC clients and the health and metrics servers. Reaching `endHeight` lets the process exit.
+  - `asyncEmit` removes its per-call `uuid` listener when a handler rejects; it used to leak one listener per failed event for the life of the process. A completion ack that arrives after its emit already rejected is now dropped instead of being re-emitted into a recursion.
+  - Every RPC and queue timeout clears its timer once the race settles (new `Utils.withTimeout`), the connect step has its own timeout per client and disconnects a client that arrives late, and timeouts reject with an `RPCError` instead of an empty array or `false`.
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - - Event handlers now run one after another in registration order. They share one database connection and one transaction, so interleaving them at await points let two handlers touch the same rows in an unpredictable order, and a failure in one left the others mid-flight during the rollback. The uuid acknowledgement protocol that `asyncEmit` used internally is gone; `emit()` and `on()` are unchanged. `EclesiaEmitter.handlersFor()` exposes the registered handlers.
+
+  - A block subscription that errors or is closed by the node now triggers a recovery instead of going unnoticed until the idle check.
+  - A transaction log that is not JSON, or a single-message transaction without a log or `msg_index` attributes, no longer fails the block.
+  - New `chainId` option: the indexer refuses to start against an RPC that reports a different network.
+  - The RPC call duration metric is recorded for failed queries too. `PromiseQueue` is deprecated; the unused `dayjs` and `uuid` dependencies and the `start` script are removed.
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - - A block that fails `maxFailuresPerBlock` (default 5) times in a row after its data was fetched now emits `fatal-error` with the height instead of being retried forever; failures to fetch (RPC outages) keep the unlimited backoff.
+  - The main class and its config type are exported under their correct spelling, `EclesiaIndexer` and `EclesiaIndexerConfig`. `EcleciaIndexer` and `EcleciaIndexerConfig` remain as deprecated aliases until 3.0.
+  - New `onGenesisStart` and `onGenesisComplete` config hooks let the storage layer record genesis import progress.
+  - The mock RPC client produces CometBFT 0.38 shapes (`cometVersion: "0.38"`), answers the Validators, ModuleAccounts, AllBalances, Pool and Params ABCI queries with pagination, and rejects unknown paths with a code, so integration tests can run without a node.
+
+### Patch Changes
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - - `callABCI` honours the ABCI response code. An error reply (pruned height, unknown path) is thrown as an `RPCError` carrying the code and log instead of decoding as an empty result; it no longer triggers a recovery for ad-hoc module queries, which can catch it.
+
+  - The validator set is fetched with pagination, so chains with more than 1000 validators are no longer truncated.
+  - An `http(s)://` RPC URL with `usePolling: false` now switches to polling with a warning at construction time instead of failing after several restarts.
+  - Explicit `undefined` configuration values no longer override the defaults.
+  - Live blocks go through the same fetcher as the initial catch-up, which waits for queue space instead of overwriting or restarting when the queue is full at the sync boundary.
+  - `EclesiaEmitter.off()` only removes handlers that were registered and supports the same handler registered more than once; `CircularBuffer` refuses to overwrite when full and throws on a dequeue without a pending item.
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - Fix `begin_block` / `end_block` events being empty on CometBFT 0.38 / Cosmos SDK 0.50+ chains. The engine filtered `finalize_block_events` on `mode == "begin_block"` / `"end_block"`, but the SDK stamps `mode=BeginBlock` / `mode=EndBlock` (baseapp.go), so no event ever matched and bank, staking and any custom begin/end-block handlers received empty event lists. The comparison now matches the SDK's spelling (and still accepts the snake_case forms) via the new `Utils.hasBlockEventMode` helper.
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - Genesis import no longer crashes the process when a `genesis/*` handler or the JSON parser fails. The stream chains had no `error` listener, so any failure surfaced as an uncaught exception and the surrounding transaction was never rolled back. Errors now reject the reader, `parseGenesis` rolls back, and the cause is logged.
+
 ## 2.14.5
 
 ### Patch Changes

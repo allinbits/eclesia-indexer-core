@@ -1,5 +1,54 @@
 # @eclesia/core-modules-pg
 
+## 2.16.0
+
+### Minor Changes
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - - Every module's schema is now a set of numbered migrations applied through `PgIndexer.applyMigrations`. The previous `module.sql` files became migration 001; existing databases are baselined automatically.
+
+  - Migration 002 (blocks): block timestamps are stored as `TIMESTAMPTZ`, so values no longer depend on the indexer host's time zone. Existing rows are reinterpreted in the database session's time zone.
+  - Migration 002 (staking): `voting_power` and `min_self_delegation` become `NUMERIC` (18-decimal chains overflowed `BIGINT`), `staking_pool` is unique per height instead of per token pair, lookup indexes are added for the latest-row queries on descriptions, commissions and voting powers, and a duplicate index is dropped.
+  - The `EventMap` augmentation for module events is emitted into the published types.
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - Staking module fixes:
+
+  - `MsgUndelegate` is handled: the newest staked balance for the delegator/validator pair is reduced by the undelegated tokens and shares (floored at zero). `MsgCancelUnbondingDelegation` returns the tokens to the delegation. Both were previously ignored, so balances only ever grew.
+  - Re-creating a validator after it was removed no longer fails on a unique violation: `validator_infos` and `validators` are upserted and any other active consensus key for the operator is retired first.
+  - `delegate()` no longer drops a delegation when the validator is missing from the in-memory cache; it falls back to the recorded voting power and, for a validator with no recorded power yet, a 1:1 share rate.
+  - Commission rates and limits from `MsgCreateValidator` and `MsgEditValidator` are stored on the same decimal scale as genesis values (protobuf `LegacyDec` values are rescaled from 18-decimal integers), via the new `fromLegacyDec` helper.
+  - Slashing re-sync reads the unbonding period from either stored params shape (genesis snake_case or proto JSON) and treats it as seconds, not milliseconds; `MsgUpdateParams` is recorded; and when no params are stored the chain is queried once instead of failing the block.
+
+### Patch Changes
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - - Bank: a spend on a denom the account has never been seen holding is recorded as a negative delta instead of a positive balance.
+
+  - Auth: module account balances are snapshotted as of the end of block 1 once block 2 starts, so block 1's own flows are no longer counted twice, and the accounts are discovered through the `ModuleAccounts` query with the well-known names as a fallback for older chains.
+  - Staking: `checkAndSaveValidators` skips only validators without a consensus address yet; database errors now fail the block instead of being swallowed into an aborted transaction that committed as empty.
+  - Staking: `updateDelegatorDelegations` follows pagination, so delegators with more than 100 delegations are refreshed completely after a slash.
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - - Consensus addresses for secp256k1 validator keys are derived as CometBFT does (ripemd160 of sha256); ed25519 keys are unchanged.
+
+  - `MsgEditValidator` follows the SDK: only the `[do-not-modify]` sentinel keeps a description field, an empty string clears it. `avatar_url` is no longer filled with the identity string.
+  - Event attributes that arrive as raw bytes (CometBFT 0.34) are stored as base64 in `transactions.logs` instead of one key per byte.
+  - `getValidatorDescription` is the correctly spelt lookup; the old name remains as an alias. Prepared statement names are unique across modules. Two redundant indexes are dropped by migrations.
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - - `StakingModule` declares its dependency on `Blocks.FullBlocksModule` and refuses to set up without it, with an explanation, instead of failing on the first block insert.
+
+  - The module-account fallback for chains without the `ModuleAccounts` query tolerates names the chain does not know.
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - Genesis import fixes:
+
+  - Bank: accounts holding two or more denoms no longer abort the import. Balances were serialised as one malformed `COIN[]` literal; each account's coins are now sent as JSON and unpacked server-side, which also handles empty coin lists and any denom characters.
+  - Auth: every genesis account shape is resolved (`address`, `base_account.address`, `base_vesting_account.base_account.address`), covering PeriodicVestingAccount, PermanentLockedAccount, EthAccount, InterchainAccount and similar wrappers. Unknown shapes are skipped with a warning instead of inserting NULL into the accounts primary key.
+  - Staking: `app_state.staking.validators` reads `consensus_pubkey.key` and `consensus_pubkey["@type"]` as the SDK exports them; the previous `consensus_pubkey.pubkey.key` path threw on any exported-state genesis.
+  - Staking: the validator cache rebuilt on restart is keyed by the active consensus address, matching every reader; it was keyed by operator address, so every validator missed on the first block after a restart.
+
+- [#31](https://github.com/allinbits/eclesia-indexer-core/pull/31) [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f) Thanks [@clockworkgr](https://github.com/clockworkgr)! - Fix four staking "latest row" queries reading the genesis row instead of the newest one. `getValidatorCommission`, `getValidatorDescription`, `delegate()` and `redelegate()` used `ORDER BY height DESC LIMIT 1`, which in PostgreSQL sorts NULL heights first; rows written from genesis/gentx have a NULL height, so any delegator or validator with a genesis row always read that row. The `(height DESC NULLS LAST)` index does not change query semantics. The queries now specify `NULLS LAST`, matching the voting-power and staking-params lookups in the same module.
+
+- Updated dependencies [[`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f), [`3769eca`](https://github.com/allinbits/eclesia-indexer-core/commit/3769eca834ea5969dfb0de4a0a967d81d708665f)]:
+  - @eclesia/basic-pg-indexer@2.16.0
+  - @eclesia/indexer-engine@2.16.0
+
 ## 2.15.1
 
 ### Patch Changes
