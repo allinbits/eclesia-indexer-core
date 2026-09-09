@@ -1,5 +1,11 @@
 # @eclesia/indexer-engine
 
+## 2.16.2
+
+### Patch Changes
+
+- [#38](https://github.com/allinbits/eclesia-indexer-core/pull/38) [`b514c34`](https://github.com/allinbits/eclesia-indexer-core/commit/b514c3428b44dd0b0774d5b99d52aea0c7ce7628) Thanks [@clockworkgr](https://github.com/clockworkgr)! - Fix a restart loop after an RPC failure in WebSocket mode. Every restart disconnects the previous client, which completes the previous block subscription; that completion requested a recovery against the run that was just starting, so each attempt died immediately and the backoff grew to five minutes. Seen on AtomOne after a burst of block-fetch timeouts: 23 consecutive "block subscription closed by the node" recoveries with no block processed. The subscription listener now carries the generation it was created for, and the previous subscription is detached before the socket is closed.
+
 ## 2.16.1
 
 ## 2.16.0
