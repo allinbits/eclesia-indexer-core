@@ -1,5 +1,12 @@
 # @eclesia/basic-pg-indexer
 
+## 2.16.2
+
+### Patch Changes
+
+- Updated dependencies [[`b514c34`](https://github.com/allinbits/eclesia-indexer-core/commit/b514c3428b44dd0b0774d5b99d52aea0c7ce7628)]:
+  - @eclesia/indexer-engine@2.16.2
+
 ## 2.16.1
 
 ### Patch Changes
