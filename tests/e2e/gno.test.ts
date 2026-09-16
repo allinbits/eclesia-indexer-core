@@ -234,11 +234,14 @@ describe.skipIf(!admin)("gno end-to-end", () => {
       });
 
       // Every deployment from the chain plus the realm deployed at genesis, all with sources
-      const packages = await db.query("SELECT count(*)::int AS n, count(*) FILTER (WHERE from_genesis)::int AS genesis, count(*) FILTER (WHERE is_realm)::int AS realms FROM packages");
+      const packages = await db.query("SELECT count(*)::int AS n, count(*) FILTER (WHERE from_genesis)::int AS genesis, count(*) FILTER (WHERE is_realm)::int AS realms, count(*) FILTER (WHERE status = 'enabled')::int AS enabled, count(*) FILTER (WHERE status = 'submitted')::int AS submitted FROM packages");
       expect(packages.rows[0]).toEqual({
         n: BLOCKS + 1,
         genesis: 1,
         realms: BLOCKS + 1,
+        // The genesis realm counts as enabled; deployments on the mock chain carry no approval
+        enabled: 1,
+        submitted: BLOCKS,
       });
       const genesisPkg = await db.query("SELECT creator, height, genesis_block_height::int, timestamp, files_count FROM packages WHERE path = $1", [GENESIS_REALM]);
       expect(genesisPkg.rows[0]).toEqual({
@@ -270,7 +273,7 @@ describe.skipIf(!admin)("gno end-to-end", () => {
       });
 
       const migrations = await db.query("SELECT module, version FROM schema_migrations ORDER BY module, version");
-      expect(migrations.rows.map(r => `${r.module}@${r.version}`)).toEqual(["blocks-full@1", "gno.messages@1", "gno.packages@1", "gno.validators@1"]);
+      expect(migrations.rows.map(r => `${r.module}@${r.version}`)).toEqual(["blocks-full@1", "gno.messages@1", "gno.messages@2", "gno.packages@1", "gno.packages@2", "gno.validators@1"]);
 
       const genesisImport = await db.query("SELECT status FROM genesis_import");
       expect(genesisImport.rows[0].status).toBe("complete");

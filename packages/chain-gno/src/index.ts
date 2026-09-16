@@ -9,10 +9,13 @@ export {
   parseGenesisBalance,
 } from "./genesis.js";
 export {
-  decodeTx, encodeTx, type MemFile, type MemPackage, type MessageDecoder, messageDecoders, MSG_ADD_PACKAGE, MSG_CALL, MSG_RUN, MSG_SEND,
-  type MsgAddPackage, type MsgCall, type MsgRun, type MsgSend, type Tx, type TxFee, type TxSignature,
+  decodeTx, encodeTx, type MemFile, type MemPackage, type MessageDecoder, messageDecoders, MSG_ADD_PACKAGE, MSG_CALL, MSG_ENABLE_PACKAGE, MSG_REJECT_PACKAGE, MSG_RUN, MSG_SEND,
+  type MsgAddPackage, type MsgCall, type MsgEnablePackage, MsgEnablePackageDecoder, type MsgRejectPackage, MsgRejectPackageDecoder, type MsgRun, type MsgSend, type Tx, type TxFee, type TxSignature,
 } from "./messages.js";
 export * as Mocks from "./mocks/index.js";
+export {
+  readFields, stringField, stringFields, varintField,
+} from "./proto.js";
 export {
   RateLimiter, throttledRpcClient,
 } from "./rate-limit.js";

@@ -59,7 +59,7 @@ Eclesia is a monorepo of packages in three layers: a chain-agnostic engine, one 
 |---------|---------|-------|
 | **`@eclesia/indexer-engine`** | Chain-agnostic engine: fetch pipeline, recovery, per-block transactions, event dispatch, metrics; defines the `ChainAdapter` contract | Foundation for all indexers |
 | **`@eclesia/chain-cosmos`** | Cosmos SDK adapter: cosmjs clients, block and validator-set fetching, the block-to-events decomposition, gentx import, a mock CometBFT node | Every Cosmos indexer |
-| **`@eclesia/chain-gno`** | gno.land adapter: tm2-rpc client, decoded messages (`/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`), genesis import, a mock Tendermint2 node | Every gno indexer |
+| **`@eclesia/chain-gno`** | gno.land adapter: tm2-rpc client with request pacing and batching, decoded messages (`/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`, `/vm.m_enable_pkg`, `/vm.m_reject_pkg`), genesis import, a mock Tendermint2 node | Every gno indexer |
 | **`@eclesia/basic-pg-indexer`** | PostgreSQL implementation: connection, transactions, migrations, module lifecycle | Most common use case |
 | **`@eclesia/cosmos-modules-pg`** | Pre-built modules for Cosmos SDK chains (blocks, auth, bank, staking) | Ready-to-use indexing modules |
 | **`@eclesia/gno-modules-pg`** | Pre-built modules for gno.land (blocks, messages and events, packages, validators) | Ready-to-use indexing modules |
@@ -94,7 +94,7 @@ Adapters are passed to the indexer as `chain: cosmos()` or `chain: gno()`, and `
 Eclesia processes blockchain data by iterating through blocks and emitting events for different types of data. The event names are declared by the chain adapter:
 
 - **Cosmos SDK**: `block`, `begin_block`, `tx_events`, `tx_memo`, one event per message type URL (for example `/cosmos.bank.v1beta1.MsgSend`), `end_block`
-- **gno.land**: `block`, `begin_block`, `tx`, `/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`, `end_block`
+- **gno.land**: `block`, `begin_block`, `tx`, `/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`, `/vm.m_enable_pkg`, `/vm.m_reject_pkg`, `end_block`
 - **Engine**: `periodic/small|medium|large`, `genesis/array/<path>`, `genesis/value/<path>`, `fatal-error`
 - **Custom Events**: Modules add their own through the global `EventMap`
 
@@ -159,8 +159,8 @@ Pre-built indexing modules for gno.land.
 
 **Available Modules:**
 - **`Blocks`**: Blocks.Full: blocks, transactions with decoded messages and block-time averages, or Blocks.Minimal: height tracking
-- **`MessagesModule`**: one table per message type (`bank_sends`, `vm_calls`, `vm_add_packages`, `vm_runs`) plus every chain event with the realm that emitted it in `gno_events`
-- **`PackagesModule`**: registry of packages and realms with their sources, from deployments and from genesis
+- **`MessagesModule`**: one table per message type (`bank_sends`, `vm_calls`, `vm_add_packages`, `vm_runs`, `vm_enable_packages`, `vm_reject_packages`) plus every chain event with the realm that emitted it in `gno_events`
+- **`PackagesModule`**: registry of packages and realms with their sources, from deployments and from genesis, with the approval state (`submitted`, `enabled`, `rejected`) on chains that park deployments until an approver enables them
 - **`ValidatorsModule`**: validator set block by block with a voting-power history. Needs full mode (`minimal: false`)
 
 ### 🛠️ Project Generator (`create-eclesia-indexer`)

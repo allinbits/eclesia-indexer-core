@@ -113,6 +113,32 @@ export class MessagesModule implements Types.IndexingModule<GnoAdapter> {
       endTimer?.();
     });
 
+    this.indexer.on("/vm.m_enable_pkg", async (event) => {
+      const {
+        msg, txHash, msgIndex,
+      } = event.value;
+      const endTimer = this.indexer.prometheus?.timeDatabaseQuery("add-vm-enable-pkg") ?? void 0;
+      await this.pgIndexer.getInstance().query({
+        name: "add-vm-enable-pkg",
+        text: "INSERT INTO vm_enable_packages(height, tx_hash, msg_index, approver, pkg_path, pkg_hash, pkg_height, timestamp) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+        values: [event.height, txHash, msgIndex, msg.approver, msg.pkgPath, msg.pkgHash || null, msg.pkgHeight.toString(), event.timestamp],
+      });
+      endTimer?.();
+    });
+
+    this.indexer.on("/vm.m_reject_pkg", async (event) => {
+      const {
+        msg, txHash, msgIndex,
+      } = event.value;
+      const endTimer = this.indexer.prometheus?.timeDatabaseQuery("add-vm-reject-pkg") ?? void 0;
+      await this.pgIndexer.getInstance().query({
+        name: "add-vm-reject-pkg",
+        text: "INSERT INTO vm_reject_packages(height, tx_hash, msg_index, sender, pkg_path, timestamp) VALUES ($1,$2,$3,$4,$5,$6)",
+        values: [event.height, txHash, msgIndex, msg.sender, msg.pkgPath, event.timestamp],
+      });
+      endTimer?.();
+    });
+
     if (!this.storeEvents) {
       return;
     }

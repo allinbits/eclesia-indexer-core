@@ -68,6 +68,9 @@ export class GnoAdapter implements ChainAdapter<Tm2Client, GnoBlock> {
 
   private readonly limiter: RateLimiter | null;
 
+  /** Message types seen without a decoder, warned about once each */
+  private readonly unknownTypes = new Set<string>();
+
   /** Transports of the clients this adapter built, for raw calls that bypass tm2-rpc's decoders */
   private readonly transports = new WeakMap<Tm2Client, RpcClient>();
 
@@ -266,7 +269,10 @@ export class GnoAdapter implements ChainAdapter<Tm2Client, GnoBlock> {
         const message = tx.messages[m];
         const decoder = this.decoders[message.typeUrl];
         if (!decoder) {
-          log.debug("No decoder for message type " + message.typeUrl + " in tx " + tx.hash);
+          if (!this.unknownTypes.has(message.typeUrl)) {
+            this.unknownTypes.add(message.typeUrl);
+            log.warn("No decoder for message type " + message.typeUrl + " (first seen in tx " + tx.hash + "); its messages are kept raw in the tx event and skipped as events. Add one through the adapter's decoders option.");
+          }
           continue;
         }
         if (log.isSillyEnabled()) {

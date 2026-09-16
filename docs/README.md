@@ -62,7 +62,7 @@ gno.land / Tendermint2 adapter on tm2-rpc and gno-types.
 
 **Key Exports:**
 - `gno(options?)`, `GnoAdapter` - The adapter; `connect` and `decoders` options
-- `GnoEvents`, `GnoTx`, `GnoMsgEvent`, `MsgSend`, `MsgCall`, `MsgAddPackage`, `MsgRun` - Event and message types
+- `GnoEvents`, `GnoTx`, `GnoMsgEvent`, `MsgSend`, `MsgCall`, `MsgAddPackage`, `MsgRun`, `MsgEnablePackage`, `MsgRejectPackage` - Event and message types
 - `parseGenesisBalance`, `decodeTx`, `messageDecoders` - Helpers
 - `Mocks.createMockTm2Client` - Synthetic Tendermint2 node
 
@@ -97,8 +97,8 @@ gno.land modules.
 
 **Key Exports:**
 - `Blocks.FullBlocksModule`, `Blocks.MinimalBlocksModule` - Blocks, transactions with decoded messages, block-time averages
-- `MessagesModule` - `bank_sends`, `vm_calls`, `vm_add_packages`, `vm_runs`, `gno_events`
-- `PackagesModule` - `packages` and `package_files`, from deployments and genesis
+- `MessagesModule` - `bank_sends`, `vm_calls`, `vm_add_packages`, `vm_runs`, `vm_enable_packages`, `vm_reject_packages`, `gno_events`
+- `PackagesModule` - `packages` (with approval `status`) and `package_files`, from deployments and genesis
 - `ValidatorsModule` - `validators` and `validator_power_history` (full mode)
 
 **Entry Point:** `packages/gno-modules/src/index.ts`
@@ -238,7 +238,7 @@ The indexer uses an event-driven architecture. Modules can listen to events:
 Block-level events are declared by the chain adapter:
 
 - Cosmos: `block`, `begin_block`, `end_block`, `tx_events`, `tx_memo`, and `/<type.url>` per message
-- gno: `block`, `begin_block`, `end_block`, `tx`, and `/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run` per message
+- gno: `block`, `begin_block`, `end_block`, `tx`, and `/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`, `/vm.m_enable_pkg`, `/vm.m_reject_pkg` per message
 
 Engine events, for every chain:
 

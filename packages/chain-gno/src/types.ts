@@ -4,7 +4,7 @@ import type {
 } from "@gnolang/tm2-rpc";
 
 import type {
-  MsgAddPackage, MsgCall, MsgRun, MsgSend, Tx, TxFee, TxSignature,
+  MsgAddPackage, MsgCall, MsgEnablePackage, MsgRejectPackage, MsgRun, MsgSend, Tx, TxFee, TxSignature,
 } from "./messages.js";
 
 /** What the gno adapter fetches for one height */
@@ -150,6 +150,12 @@ export type Events = {
   "/vm.m_run": {
     value: GnoMsgEvent<MsgRun>
   }
+  "/vm.m_enable_pkg": {
+    value: GnoMsgEvent<MsgEnablePackage>
+  }
+  "/vm.m_reject_pkg": {
+    value: GnoMsgEvent<MsgRejectPackage>
+  }
   end_block: {
     value: readonly Event[]
   }
@@ -169,6 +175,12 @@ export type Events = {
     value: GenesisMsgEvent
   }
   "gentx/vm.m_run": {
+    value: GenesisMsgEvent
+  }
+  "gentx/vm.m_enable_pkg": {
+    value: GenesisMsgEvent
+  }
+  "gentx/vm.m_reject_pkg": {
     value: GenesisMsgEvent
   }
 };

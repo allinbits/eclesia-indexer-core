@@ -98,6 +98,33 @@ export class PackagesModule implements Types.IndexingModule<GnoAdapter> {
       });
     });
 
+    // Approval flow: enable and reject only update a package the chain already parked
+    this.indexer.on("/vm.m_enable_pkg", async (event) => {
+      const {
+        msg, txHash,
+      } = event.value;
+      const endTimer = this.indexer.prometheus?.timeDatabaseQuery("enable-package") ?? void 0;
+      await this.pgIndexer.getInstance().query({
+        name: "enable-package",
+        text: "UPDATE packages SET enabled_height = $2, enabled_tx_hash = $3, enabled_by = $4, pkg_hash = $5, pkg_height = $6 WHERE path = $1",
+        values: [msg.pkgPath, event.height, txHash, msg.approver, msg.pkgHash || null, msg.pkgHeight.toString()],
+      });
+      endTimer?.();
+    });
+
+    this.indexer.on("/vm.m_reject_pkg", async (event) => {
+      const {
+        msg, txHash,
+      } = event.value;
+      const endTimer = this.indexer.prometheus?.timeDatabaseQuery("reject-package") ?? void 0;
+      await this.pgIndexer.getInstance().query({
+        name: "reject-package",
+        text: "UPDATE packages SET rejected_height = $2, rejected_tx_hash = $3, rejected_by = $4 WHERE path = $1",
+        values: [msg.pkgPath, event.height, txHash, msg.sender],
+      });
+      endTimer?.();
+    });
+
     // Amino JSON form: snake_case fields, numbers as strings
     this.indexer.on("gentx/vm.m_addpkg", async (event) => {
       const msg = event.value.msg as {
