@@ -34,6 +34,7 @@ You'll be asked a series of questions to configure your indexer. Use the followi
 
 | Prompt | Value | Notes |
 |--------|-------|-------|
+| **Chain family** | `Cosmos SDK (CometBFT)` | The scaffolder also generates gno.land indexers, see below |
 | **Project name** | `a1-indexer` | You can use any name you prefer |
 | **Chain name** | `AtomOne Mainnet` | |
 | **Chain address prefix** | `atone` | AtomOne's address prefix |
@@ -128,6 +129,16 @@ Your indexer is now running! You can:
 - **Customize modules** and indexing logic as needed
 - **Performance tuning** - See [PERFORMANCE.md](PERFORMANCE.md) for optimization guidance
 - **Troubleshooting** - Refer to [TROUBLESHOOTING.md](TROUBLESHOOTING.md) if you encounter issues
+
+## Indexing gno.land instead
+
+Pick `gno.land (Tendermint2)` as the chain family. There is no address prefix prompt, the RPC endpoint defaults to a local `gnodev` node (`http://127.0.0.1:26657`), and the modules offered are Messages, Packages and Validators (the last one only without minimal block indexing). To index from genesis, save the node's genesis first:
+
+```bash
+curl -s http://127.0.0.1:26657/genesis | python3 -c "import json,sys; json.dump(json.load(sys.stdin)['result']['genesis'], open('genesis.json','w'))"
+```
+
+Everything else, including the Docker stack and Hasura, works the same way.
 
 ## Additional Resources
 

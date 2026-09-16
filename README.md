@@ -1,9 +1,12 @@
 # Eclesia Indexer Core
 
-A powerful, modular framework for indexing Cosmos SDK blockchain data. Eclesia Indexer provides the tools to efficiently collect, process, and store blockchain data from any Cosmos-based chain.
+A powerful, modular framework for indexing blockchain data. One chain-agnostic engine, a chain adapter per chain family, PostgreSQL storage and ready-made modules. Today it indexes any Cosmos SDK chain (CometBFT 0.34 to 0.38) and gno.land (Tendermint2); adding a chain means implementing one adapter interface.
+
+Upgrading from 2.x? See [MIGRATION.md](MIGRATION.md).
 
 ## Key Features
 
+- Chain-agnostic engine with typed chain adapters (Cosmos SDK, gno.land)
 - Modular Architecture
 - Event-Driven Block Processing
 - PostgreSQL-Optimized Storage Layer
@@ -22,55 +25,88 @@ More information in our tutorials: [Simple](TUTORIAL.md) and [Advanced](ADVANCED
 
 ## 📦 Architecture
 
-Eclesia is built as a monorepo with four core packages that work together:
+Eclesia is a monorepo of packages in three layers: a chain-agnostic engine, one adapter per chain family, and the storage and modules built on them.
 
 ```
 ┌─────────────────────┐    ┌──────────────────────┐
 │ create-eclesia-     │    │ @eclesia/            │
-│ indexer             │───▶│ indexer-engine       │
-│ (CLI scaffolding)   │    │ (Core engine)        │
+│ indexer             │───▶│ indexer-engine       │  chain-agnostic: queue, recovery,
+│ (CLI scaffolding)   │    │ (Core engine)        │  transactions, events, metrics
 └─────────────────────┘    └──────────┬───────────┘
-                                      │
-                          ┌───────────▼───────────┐
-                          │ @eclesia/             │
-                          │ basic-pg-indexer      │
-                          │ (PostgreSQL impl)     │
-                          └───────────┬───────────┘
-                                      │
-                          ┌───────────▼───────────┐
-                          │ @eclesia/             │
-                          │ core-modules-pg       │
-                          │ (Pre-built modules)   │
-                          └───────────────────────┘
+                                      │ ChainAdapter
+                  ┌───────────────────┴───────────────────┐
+        ┌─────────▼──────────┐               ┌────────────▼─────────┐
+        │ @eclesia/          │               │ @eclesia/            │
+        │ chain-cosmos       │               │ chain-gno            │
+        │ (cosmjs, CometBFT) │               │ (tm2-rpc, gno-types) │
+        └─────────┬──────────┘               └────────────┬─────────┘
+                  │        ┌──────────────────────┐       │
+                  └───────▶│ @eclesia/            │◀──────┘
+                           │ basic-pg-indexer     │
+                           │ (PostgreSQL impl)    │
+                           └──────────┬───────────┘
+                  ┌───────────────────┴───────────────────┐
+        ┌─────────▼──────────┐               ┌────────────▼─────────┐
+        │ @eclesia/          │               │ @eclesia/            │
+        │ cosmos-modules-pg  │               │ gno-modules-pg       │
+        │ (auth, bank, ...)  │               │ (messages, pkgs, ...)│
+        └────────────────────┘               └──────────────────────┘
 ```
 
 ### Package Responsibilities
 
 | Package | Purpose | Usage |
 |---------|---------|-------|
-| **`@eclesia/indexer-engine`** | Core indexing engine that processes blocks and emits events | Foundation for all indexers |
-| **`@eclesia/basic-pg-indexer`** | PostgreSQL implementation of the indexer engine | Most common use case |
-| **`@eclesia/core-modules-pg`** | Pre-built modules for common Cosmos SDK features | Ready-to-use indexing modules |
-| **`create-eclesia-indexer`** | CLI tool for scaffolding new indexer projects | Getting started quickly |
+| **`@eclesia/indexer-engine`** | Chain-agnostic engine: fetch pipeline, recovery, per-block transactions, event dispatch, metrics; defines the `ChainAdapter` contract | Foundation for all indexers |
+| **`@eclesia/chain-cosmos`** | Cosmos SDK adapter: cosmjs clients, block and validator-set fetching, the block-to-events decomposition, gentx import, a mock CometBFT node | Every Cosmos indexer |
+| **`@eclesia/chain-gno`** | gno.land adapter: tm2-rpc client, decoded messages (`/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`), genesis import, a mock Tendermint2 node | Every gno indexer |
+| **`@eclesia/basic-pg-indexer`** | PostgreSQL implementation: connection, transactions, migrations, module lifecycle | Most common use case |
+| **`@eclesia/cosmos-modules-pg`** | Pre-built modules for Cosmos SDK chains (blocks, auth, bank, staking) | Ready-to-use indexing modules |
+| **`@eclesia/gno-modules-pg`** | Pre-built modules for gno.land (blocks, messages and events, packages, validators) | Ready-to-use indexing modules |
+| **`create-eclesia-indexer`** | CLI tool for scaffolding new indexer projects for either chain family | Getting started quickly |
+
+`@eclesia/core-modules-pg` was renamed to `@eclesia/cosmos-modules-pg` in 4.0; the old name is published once more as a re-export.
 
 ## 🏗️ Core Concepts
 
+### Chain Adapters
+
+The engine never talks to a node itself. A chain adapter opens the RPC client, fetches whatever one block is on that chain, and decomposes it into typed events; the engine owns everything around that: the prefetch queue, timeouts and recovery, the per-block database transaction, genesis streaming, health and metrics.
+
+```typescript
+interface ChainAdapter<TClient, TBlock> {
+  readonly name: string;
+  connect(url: string): Promise<TClient>;
+  disconnect(client: TClient): void | Promise<void>;
+  status(client: TClient): Promise<{ network: string; latestHeight: number }>;
+  subscribeNewBlock?(client: TClient, listener: BlockListener): Unsubscribe | null; // absent or null => the engine polls
+  fetchBlock(client: TClient, height: number, ctx: FetchContext): Promise<FetchedBlock<TBlock>>;
+  processBlock(block: FetchedBlock<TBlock>, ctx: ProcessContext): Promise<void>;   // emits the events modules listen to
+  abciQuery?(client: TClient, path: string, data: Uint8Array, height?: number): Promise<AbciResult>;
+  genesis?(ctx: GenesisContext): Promise<void>;
+}
+```
+
+Adapters are passed to the indexer as `chain: cosmos()` or `chain: gno()`, and `EclesiaIndexer`, `PgIndexer` and `IndexingModule` are generic over them, so a gno module cannot be installed on a Cosmos indexer by mistake. Every adapter ships a mock node and must pass the engine's `Mocks.adapterContractCases()`.
+
 ### Event-Driven Architecture
 
-Eclesia processes blockchain data by iterating through blocks and emitting events for different types of data:
+Eclesia processes blockchain data by iterating through blocks and emitting events for different types of data. The event names are declared by the chain adapter:
 
-- **Block Events**: `begin_block`, `block`, `end_block`
-- **Transaction Events**: `tx_events`, `tx_memo`
-- **Validator Events**: Validator set changes and staking data
-- **Custom Events**: Chain-specific events from messages and state changes
+- **Cosmos SDK**: `block`, `begin_block`, `tx_events`, `tx_memo`, one event per message type URL (for example `/cosmos.bank.v1beta1.MsgSend`), `end_block`
+- **gno.land**: `block`, `begin_block`, `tx`, `/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`, `end_block`
+- **Engine**: `periodic/small|medium|large`, `genesis/array/<path>`, `genesis/value/<path>`, `fatal-error`
+- **Custom Events**: Modules add their own through the global `EventMap`
+
+One chain adapter package per TypeScript project: two adapters declare `block` with different payloads, which the merged event map rejects.
 
 ### Modular Design
 
 Create custom modules for the basic PG indexer by implementing the `IndexingModule` interface:
 
 ```typescript
-interface IndexingModule {
-  indexer: EclesiaIndexer           // Reference to main indexer
+interface IndexingModule<A extends ChainAdapter> {
+  indexer: EclesiaIndexer<A>        // Reference to main indexer
   name: string                      // Unique module name
   depends: string[]                 // Dependencies on other modules
   provides: string[]                // Capabilities this module provides
@@ -83,14 +119,19 @@ interface IndexingModule {
 
 ### 🔧 Core Engine (`@eclesia/indexer-engine`)
 
-The foundational package that provides the core indexing functionality.
+The foundational package that provides the core indexing functionality, independent of any chain.
 
 **Key Features:**
-- Block processing and event emission
-- WebSocket and polling support for real-time indexing
+- Block pipeline and event emission through a chain adapter
+- Subscription and polling support for real-time indexing
 - Configurable batch processing
-- Genesis state processing
-- Transaction management
+- Genesis state streaming
+- Transaction management, recovery with backoff, health and Prometheus metrics
+- The `ChainAdapter` contract and `Mocks.adapterContractCases()` for adapter authors
+
+### ⛓️ Chain Adapters (`@eclesia/chain-cosmos`, `@eclesia/chain-gno`)
+
+One package per chain family. `cosmos()` runs any Cosmos SDK chain through cosmjs and fetches the full validator set per block in full mode. `gno()` runs gno.land and other Tendermint2 chains through tm2-rpc, decoding every message with gno-types; Tendermint2 has no block subscription, so the engine polls. Both accept a `connect` option to supply a custom or mock client.
 
 ### 🐘 PostgreSQL Indexer (`@eclesia/basic-pg-indexer`)
 
@@ -102,7 +143,7 @@ A PostgreSQL-specific implementation of the indexer engine, perfect for most use
 - Versioned schema migrations, applied on start and tracked per module
 - Optimized for high-throughput indexing
 
-### 🧩 Core Modules (`@eclesia/core-modules-pg`)
+### 🧩 Cosmos Modules (`@eclesia/cosmos-modules-pg`)
 
 Pre-built indexing modules for common Cosmos SDK functionality.
 
@@ -111,6 +152,16 @@ Pre-built indexing modules for common Cosmos SDK functionality.
 - **`AuthModule`**: Account authentication data
 - **`BankModule`**: Token transfers and balances
 - **`StakingModule`**: Validator and delegation data. Requires `Blocks.FullBlocksModule` (its schema references the block proposer) and a genesis import from height 1, so every proposer is known
+
+### 🧩 gno Modules (`@eclesia/gno-modules-pg`)
+
+Pre-built indexing modules for gno.land.
+
+**Available Modules:**
+- **`Blocks`**: Blocks.Full: blocks, transactions with decoded messages and block-time averages, or Blocks.Minimal: height tracking
+- **`MessagesModule`**: one table per message type (`bank_sends`, `vm_calls`, `vm_add_packages`, `vm_runs`) plus every chain event with the realm that emitted it in `gno_events`
+- **`PackagesModule`**: registry of packages and realms with their sources, from deployments and from genesis
+- **`ValidatorsModule`**: validator set block by block with a voting-power history. Needs full mode (`minimal: false`)
 
 ### 🛠️ Project Generator (`create-eclesia-indexer`)
 
@@ -132,7 +183,10 @@ npx create-eclesia-indexer@latest
 The indexer is configured through the `EclesiaIndexerConfig` (or `PgIndexerConfig` for PostgreSQL) interface:
 
 ```typescript
-const config: PgIndexerConfig = {
+const config: PgIndexerConfig<CosmosAdapter> = {
+  // Chain adapter: cosmos() from @eclesia/chain-cosmos or gno() from @eclesia/chain-gno
+  chain: cosmos(),
+
   // Block range
   startHeight: 1,                    // Starting block height
   endHeight?: number,                // Optional ending height
@@ -150,7 +204,7 @@ const config: PgIndexerConfig = {
 
   // Features
   modules: [],                       // Module names to enable
-  minimal: false,                    // Minimal mode (blocks only)
+  minimal: false,                    // Minimal mode (lets the adapter skip per-block extras such as validator sets)
   processGenesis: false,             // Process genesis state
   genesisPath: "./genesis.json",     // Path to genesis file
 
@@ -189,9 +243,11 @@ npm start
 For advanced users who need full control:
 
 ```typescript
-import { EclesiaIndexer, EclesiaIndexerConfig } from '@eclesia/indexer-engine';
+import { cosmos, CosmosAdapter } from '@eclesia/chain-cosmos';
+import { EclesiaIndexer, Types } from '@eclesia/indexer-engine';
 
-const config: EclesiaIndexerConfig = {
+const config: Types.EclesiaIndexerConfig<CosmosAdapter> = {
+  chain: cosmos(),
   // Custom configuration
 };
 
@@ -220,19 +276,23 @@ import {
   PgIndexer, PgIndexerConfig,
 } from "@eclesia/basic-pg-indexer";
 import {
+  cosmos, CosmosAdapter,
+} from "@eclesia/chain-cosmos";
+import {
   AuthModule, BankModule, Blocks, StakingModule,
-} from "@eclesia/core-modules-pg";
+} from "@eclesia/cosmos-modules-pg";
 
 import {
   GovModule,
 } from "./modules/atomone.gov.v1beta1/index.js";
 
-const config: PgIndexerConfig = {
+const config: PgIndexerConfig<CosmosAdapter> = {
+  chain: cosmos(),
   startHeight: 1,
   batchSize: Number(process.env.QUEUE_SIZE) || 300,
   modules: [],
   rpcUrl: process.env.RPC_ENDPOINT || "https://rpc.atomone.network",
-  logLevel: process.env.LOG_LEVEL as PgIndexerConfig["logLevel"] ?? "info",
+  logLevel: process.env.LOG_LEVEL as PgIndexerConfig<CosmosAdapter>["logLevel"] ?? "info",
   usePolling: false,
   pollingInterval: 0,
   processGenesis: process.env.PROCESS_GENESIS === "true" || false,
@@ -267,15 +327,41 @@ const run = async () => {
 run();
 ```
 
+And a gno.land indexer, against a local `gnodev` node:
+
+```typescript
+import { PgIndexer, PgIndexerConfig } from "@eclesia/basic-pg-indexer";
+import { gno, GnoAdapter } from "@eclesia/chain-gno";
+import { Blocks, MessagesModule, PackagesModule, ValidatorsModule } from "@eclesia/gno-modules-pg";
+
+const config: PgIndexerConfig<GnoAdapter> = {
+  chain: gno(),
+  rpcUrl: "http://127.0.0.1:26657",
+  usePolling: true,
+  pollingInterval: 1000,
+  startHeight: 1,
+  batchSize: 50,
+  modules: [],
+  minimal: false,
+  processGenesis: true,
+  genesisPath: "./genesis.json",
+  logLevel: "info",
+  dbConnectionString: process.env.PG_CONNECTION_STRING || "postgres://postgres:password@localhost:5432/gno",
+};
+const indexer = new PgIndexer(config, [new Blocks.FullBlocksModule(), new MessagesModule(), new PackagesModule(), new ValidatorsModule()]);
+await indexer.setup();
+await indexer.run();
+```
+
 ## 🔌 Creating Custom Modules
 
 ```typescript
-export class MyCustomModule implements IndexingModule {
+export class MyCustomModule implements IndexingModule<CosmosAdapter> {
   name = "my-custom-module";
   depends = ["blocks"];              // Depends on blocks module
   provides = ["custom-data"];        // Provides custom data indexing
 
-  constructor(public indexer: EclesiaIndexer) {}
+  constructor(public indexer: EclesiaIndexer<CosmosAdapter>) {}
 
   async setup(): Promise<void> {
     // Create database tables, etc.
@@ -314,7 +400,7 @@ docker compose up -d      # Start PostgreSQL, indexer and Hasura instance (crede
 
 ### Benchmarking
 
-Two Vitest bench suites in `packages/indexer-engine/benchmarks` measure the engine on its own, with no RPC node and no database:
+Two Vitest bench suites in `packages/chain-cosmos/benchmarks` measure the engine with the Cosmos adapter, with no RPC node and no database:
 
 - **Block processing throughput**: blocks come from the in-memory mock RPC client, transaction handlers are no-ops. Each iteration starts an indexer, processes every block and tears it down, so the numbers cover fetch scheduling, decoding, event dispatch and the start/stop lifecycle.
 - **Genesis import**: streams a synthetic 20,000-account genesis file through the same stream-json pipeline the indexer uses at startup, with handlers that only count entries.
@@ -324,7 +410,7 @@ Two Vitest bench suites in `packages/indexer-engine/benchmarks` measure the engi
 pnpm run bench
 
 # Run one suite
-cd packages/indexer-engine
+cd packages/chain-cosmos
 pnpm bench block-processing
 pnpm bench genesis-parsing
 ```
@@ -374,8 +460,9 @@ GNO NETWORK GENERAL PUBLIC LICENSE
   - [Advanced Tutorial](ADVANCED_TUTORIAL.md) - Custom module development
   - [Performance Guide](PERFORMANCE.md) - Production optimization
   - [Troubleshooting](TROUBLESHOOTING.md) - Common issues and solutions
+  - [Migration Guide](MIGRATION.md) - Moving a 2.x indexer to 4.0
 - **Examples**: See [AtomOne Indexer](https://github.com/allinbits/atomone-indexer)
 
 ---
 
-Built with ❤️ for the Cosmos ecosystem
+Built with ❤️ for the Cosmos and gno.land ecosystems

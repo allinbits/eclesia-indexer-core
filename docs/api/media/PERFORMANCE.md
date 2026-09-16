@@ -321,15 +321,16 @@ They are compile-time constants and cannot be changed through configuration. On 
 
 | Case | Mean | Throughput |
 |------|-----:|-----------:|
-| 100 blocks, 10 tx each | 13 ms | ~7,500 blocks/s |
-| 100 blocks, 100 tx each | 93 ms | ~1,070 blocks/s |
-| 1,000 blocks, 10 tx each | 121 ms | ~8,200 blocks/s |
-| 1,000 blocks, 100 tx each | 1,001 ms | ~1,000 blocks/s |
-| Genesis import, 20,000 accounts + 20,000 balances | 1,140 ms | ~35,000 entries/s |
+| 100 blocks, 10 tx each | 15 ms | ~6,600 blocks/s |
+| 100 blocks, 100 tx each | 125 ms | ~800 blocks/s |
+| 1,000 blocks, 10 tx each | 136 ms | ~7,400 blocks/s |
+| 1,000 blocks, 100 tx each | 1,659 ms | ~600 blocks/s |
+| Genesis import, 20,000 accounts + 20,000 balances | 1,106 ms | ~36,000 entries/s |
 
 **How to read them:**
 - Engine cost is proportional to transactions per block; block count barely matters.
-- Ten no-op message listeners add about 10%, so handler registration itself is cheap. Real module handlers cost whatever their queries cost.
+- Ten no-op message listeners add under 10%, so handler registration itself is cheap. Real module handlers cost whatever their queries cost.
+- The mock RPC client builds every transaction with a bech32 signer address and `coin_spent` / `coin_received` / `transfer` events; that generation is roughly a quarter of the 100-tx figures, so the engine's own share is smaller than the table shows.
 - A production indexer on a live chain is bound by the database and the RPC, typically tens to a few hundred blocks per second. If you measure far below that, look at query latency (`indexer_database_query_duration_seconds`) and RPC latency (`indexer_rpc_call_duration_seconds`) before tuning the engine.
 - Genesis import re-reads the file once per registered `genesis/*` handler. Ten handlers on a 2 GB genesis means ten passes; register only the keys you need.
 

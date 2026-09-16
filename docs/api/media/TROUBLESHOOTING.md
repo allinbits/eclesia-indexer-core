@@ -116,6 +116,8 @@ Indexing starts at block 1 without genesis state, so module balances and delegat
 **Causes:**
 - processGenesis enabled but no genesisPath provided
 
+Note that `StakingModule` needs a genesis import: its schema links every block's proposer to the `validators` table, so without genesis (or with a start height above 1) blocks fail to insert.
+
 **Solutions:**
 1. Provide genesisPath in configuration:
    ```typescript
@@ -421,7 +423,15 @@ The indexer includes automatic recovery for:
 - **Idle chains** - Not treated as an error: the indexer waits, reports `WAITING`, and resumes when blocks appear
 - **Database connection recycling** - The client is replaced every 1500 committed transactions to prevent stale connections
 
-`fatal-error` is emitted only when `maxRetries` is configured and exceeded. Listen for it if you want the process to exit in that case.
+### When the indexer gives up
+
+`fatal-error` is emitted, and `PgIndexer` stops and exits the process with code 1 (set `exitOnFatal: false` to handle it yourself), when:
+- one block fails 5 times in a row after its data was fetched (`maxFailuresPerBlock`). A failure that survives a restart is a handler bug, a schema mismatch or bad data, and retrying it forever would hide it. The log names the height; the `fatal-error` payload carries it as `height`. A database outage longer than the five attempts (about 2.5 minutes) trips this too, which is what the orchestrator restart is for.
+- `maxRetries` consecutive restarts failed, when that option is set.
+
+#### Error: "A previous genesis import did not complete"
+
+Genesis is imported in chunks that commit every 5,000 entries. If the process dies part-way, the committed chunks stay in the database and importing again on top of them would double every balance and delegation, so the indexer refuses to start. Drop the database (or its `public` schema) and start again. The `genesis_import` table records the import's state.
 
 ### Manual Recovery
 

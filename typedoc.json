@@ -1,11 +1,11 @@
 {
   "entryPoints": [
-    "packages/indexer-engine/src/index.ts",
-    "packages/chain-cosmos/src/index.ts",
-    "packages/chain-gno/src/index.ts",
-    "packages/basic-indexer-pg/src/index.ts",
-    "packages/cosmos-modules/src/index.ts",
-    "packages/gno-modules/src/index.ts"
+    "packages/indexer-engine",
+    "packages/chain-cosmos",
+    "packages/chain-gno",
+    "packages/basic-indexer-pg",
+    "packages/cosmos-modules",
+    "packages/gno-modules"
   ],
   "out": "docs/api",
   "name": "Eclesia Indexer Core API",
@@ -34,5 +34,6 @@
     "**/*.bench.ts",
     "**/node_modules/**",
     "**/dist/**"
-  ]
+  ],
+  "entryPointStrategy": "packages"
 }
