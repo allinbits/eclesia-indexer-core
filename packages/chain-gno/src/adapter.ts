@@ -6,12 +6,15 @@ import {
   AbciResult, ChainAdapter, FetchContext, FetchedBlock, GenesisContext, ProcessContext,
 } from "@eclesia/indexer-engine";
 import {
-  connectTm2, Tm2Client, toRfc3339WithNanoseconds, TxResult, Validator,
+  connectTm2, HttpClient, Tm2Client, toRfc3339WithNanoseconds, TxResult, Validator,
 } from "@gnolang/tm2-rpc";
 
 import {
   decodeTx, MessageDecoder, messageDecoders,
 } from "./messages.js";
+import {
+  RateLimiter, throttledRpcClient,
+} from "./rate-limit.js";
 import {
   GenesisTx, GnoBlock, GnoTx, GnoTxError,
 } from "./types.js";
@@ -25,6 +28,14 @@ export type GnoAdapterOptions = {
   connect?: (url: string) => Promise<Tm2Client>
   /** Extra message decoders by type URL, for forks with their own messages; override built-ins by URL */
   decoders?: Record<string, MessageDecoder>
+  /**
+   * Cap on JSON-RPC calls per second across every client this adapter opens. Public endpoints
+   * such as rpc.gno.land block bursts; a full-mode indexer makes three calls per block. Only
+   * applies to clients the adapter builds itself (not with a custom `connect`).
+   */
+  requestsPerSecond?: number
+  /** Extra HTTP headers for the RPC transport (API keys, a User-Agent); ignored with a custom `connect` */
+  headers?: Record<string, string>
 };
 
 /**
@@ -42,6 +53,8 @@ export class GnoAdapter implements ChainAdapter<Tm2Client, GnoBlock> {
 
   private readonly decoders: Record<string, MessageDecoder>;
 
+  private readonly limiter: RateLimiter | null;
+
   constructor(options: GnoAdapterOptions = {
   }) {
     this.options = options;
@@ -49,10 +62,22 @@ export class GnoAdapter implements ChainAdapter<Tm2Client, GnoBlock> {
       ...messageDecoders,
       ...options.decoders,
     };
+    this.limiter = options.requestsPerSecond ? new RateLimiter(options.requestsPerSecond) : null;
   }
 
   connect(url: string): Promise<Tm2Client> {
-    return this.options.connect ? this.options.connect(url) : connectTm2(url);
+    if (this.options.connect) {
+      return this.options.connect(url);
+    }
+    if (!this.limiter && !this.options.headers) {
+      return connectTm2(url);
+    }
+    const transport = new HttpClient({
+      url,
+      headers: this.options.headers ?? {
+      },
+    });
+    return Tm2Client.create(this.limiter ? throttledRpcClient(transport, this.limiter) : transport);
   }
 
   disconnect(client: Tm2Client): void {

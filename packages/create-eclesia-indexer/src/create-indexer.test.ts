@@ -98,7 +98,7 @@ describe("templates", () => {
     expect(cosmosEntry).toContain("chain: cosmos()");
     expect(cosmosEntry).toContain("PgIndexerConfig<CosmosAdapter>");
     const gnoEntry = fs.readFileSync(path.join(templates, "gno", "src", "index.ts.template"), "utf-8");
-    expect(gnoEntry).toContain("chain: gno()");
+    expect(gnoEntry).toContain("chain: gno(");
     expect(gnoEntry).toContain("usePolling: true");
     for (const chain of ["cosmos", "gno"]) {
       const manifest = fs.readFileSync(path.join(templates, chain, "package.json.template"), "utf-8")
@@ -133,7 +133,7 @@ describe("scaffold", () => {
     });
     try {
       const entry = fs.readFileSync(path.join(target, "src", "index.ts"), "utf-8");
-      expect(entry).toContain("chain: gno()");
+      expect(entry).toContain("chain: gno(");
       expect(entry).toContain("new ValidatorsModule()");
       expect(entry).not.toContain("{{");
       const manifest = JSON.parse(fs.readFileSync(path.join(target, "package.json"), "utf-8")) as {

@@ -17,6 +17,8 @@ const config: PgIndexerConfig<CosmosAdapter> = {
   batchSize: Number(process.env.QUEUE_SIZE) || {{QUEUE_SIZE}},
   modules: [],
   rpcUrl: process.env.RPC_ENDPOINT || "{{RPC_ENDPOINT}}",
+  // Refuse to index if the RPC serves another network (CHAIN_ID in .env, optional)
+  chainId: process.env.CHAIN_ID || undefined,
   logLevel: process.env.LOG_LEVEL as PgIndexerConfig<CosmosAdapter>["logLevel"] ?? "debug",
   usePolling: process.env.USE_POLLING == "true" || false,
   pollingInterval: 3000,

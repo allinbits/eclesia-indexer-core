@@ -13,6 +13,9 @@ export {
   type MsgAddPackage, type MsgCall, type MsgRun, type MsgSend, type Tx, type TxFee, type TxSignature,
 } from "./messages.js";
 export * as Mocks from "./mocks/index.js";
+export {
+  RateLimiter, throttledRpcClient,
+} from "./rate-limit.js";
 export type {
   GenesisBalance, GenesisMsg, GenesisMsgEvent, GenesisTx, GenesisTxMetadata, GnoBlock, Events as GnoEvents, GnoMsgEvent, GnoTx, GnoTxError, ParsedGenesisBalance,
 } from "./types.js";
