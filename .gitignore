@@ -24,3 +24,6 @@ dist-ssr
 
 # Profiling output (node --cpu-prof / --heap-prof)
 test-runner-profile/
+
+# Local planning documents (not committed)
+docs/plans/

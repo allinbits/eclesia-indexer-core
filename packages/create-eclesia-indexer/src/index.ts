@@ -14,7 +14,7 @@ import {
 async function main() {
   console.log();
   console.log(colors.cyan("🚀 Welcome to create-eclesia-indexer!"));
-  console.log(colors.gray("Scaffolding a new Cosmos SDK chain indexer..."));
+  console.log(colors.gray("Scaffolding a new blockchain indexer (Cosmos SDK or gno.land)..."));
   console.log();
 
   try {

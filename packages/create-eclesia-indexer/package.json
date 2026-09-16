@@ -1,7 +1,7 @@
 {
   "name": "create-eclesia-indexer",
-  "version": "2.16.2",
-  "description": "CLI tool to scaffold Cosmos SDK chain indexers using eclesia-indexer-core",
+  "version": "3.0.0",
+  "description": "CLI tool to scaffold Cosmos SDK and gno.land chain indexers using eclesia-indexer-core",
   "type": "module",
   "bin": {
     "create-eclesia-indexer": "./bin/create-eclesia-indexer.js"
@@ -11,7 +11,8 @@
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "pnpm run build",
+    "test": "vitest run"
   },
   "files": [
     "dist/",
@@ -20,6 +21,7 @@
   ],
   "keywords": [
     "cosmos",
+    "gno",
     "indexer",
     "blockchain",
     "cli",
@@ -57,7 +59,8 @@
     "eslint-plugin-simple-import-sort": "^12.1.1",
     "tsdown": "^0.16.8",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.70.0"
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^4.1.11"
   },
   "exports": {
     ".": {
@@ -70,7 +73,17 @@
         "default": "./dist/index.cjs"
       }
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./scaffold": {
+      "import": {
+        "types": "./dist/scaffold.d.mts",
+        "default": "./dist/scaffold.mjs"
+      },
+      "require": {
+        "types": "./dist/scaffold.d.cts",
+        "default": "./dist/scaffold.cjs"
+      }
+    }
   },
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",

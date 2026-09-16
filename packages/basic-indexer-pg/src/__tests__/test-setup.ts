@@ -1,5 +1,5 @@
 import {
-  Types,
+  Mocks, Types,
 } from "@eclesia/indexer-engine";
 import type {
   Mock,
@@ -30,6 +30,7 @@ export interface MockClient {
  */
 export function createTestConfig(): PgIndexerConfig {
   return {
+    chain: Mocks.syntheticChain(),
     startHeight: 1,
     batchSize: 100,
     modules: [],

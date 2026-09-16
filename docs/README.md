@@ -30,10 +30,12 @@ open http://localhost:8000
 
 ### @eclesia/indexer-engine
 
-Core indexer engine with block processing, event system, and configuration.
+Chain-agnostic indexer engine: block pipeline, event system, recovery, configuration, and the `ChainAdapter` contract.
 
 **Key Exports:**
-- `EclesiaIndexer` - Main indexer class (`EcleciaIndexer` remains as a deprecated alias until 3.0)
+- `EclesiaIndexer<A>` - Main indexer class, generic over the chain adapter
+- `ChainAdapter`, `FetchedBlock`, `ProcessContext`, `GenesisContext` - The adapter contract
+- `Mocks.syntheticChain`, `Mocks.adapterContractCases` - Test helpers for engine and adapter authors
 - `IndexerMetrics` - Prometheus metrics
 - `Types` - TypeScript type definitions
 - `Utils` - Utility functions
@@ -43,28 +45,65 @@ Core indexer engine with block processing, event system, and configuration.
 
 **Entry Point:** `packages/indexer-engine/src/index.ts`
 
+### @eclesia/chain-cosmos
+
+Cosmos SDK / CometBFT adapter on cosmjs.
+
+**Key Exports:**
+- `cosmos(options?)`, `CosmosAdapter` - The adapter; `connect` option for custom or mock clients
+- `CosmosEvents`, `TxResult`, `CosmosBlock` - Event and payload types
+- `Mocks.createMockRpcClient` - Synthetic CometBFT node
+
+**Entry Point:** `packages/chain-cosmos/src/index.ts`
+
+### @eclesia/chain-gno
+
+gno.land / Tendermint2 adapter on tm2-rpc and gno-types.
+
+**Key Exports:**
+- `gno(options?)`, `GnoAdapter` - The adapter; `connect` and `decoders` options
+- `GnoEvents`, `GnoTx`, `GnoMsgEvent`, `MsgSend`, `MsgCall`, `MsgAddPackage`, `MsgRun`, `MsgEnablePackage`, `MsgRejectPackage`, `MsgCreateSession`, `MsgRevokeSession`, `MsgRevokeAllSessions` - Event and message types
+- `parseGenesisBalance`, `decodeTx`, `messageDecoders`, `messageSigners`, `pubKeyAddress`, `parseCoins`, `parseTransferEvent` - Helpers
+- `Mocks.createMockTm2Client` - Synthetic Tendermint2 node
+
+**Entry Point:** `packages/chain-gno/src/index.ts`
+
 ### @eclesia/basic-pg-indexer
 
 PostgreSQL implementation of the indexer with database transaction management.
 
 **Key Exports:**
-- `PgIndexer` - PostgreSQL indexer implementation
-- `PgIndexerConfig` - Configuration type
+- `PgIndexer<A>` - PostgreSQL indexer implementation, generic over the chain adapter
+- `PgIndexerConfig<A>` - Configuration type
 
 **Entry Point:** `packages/basic-indexer-pg/src/index.ts`
 
-### @eclesia/core-modules-pg
+### @eclesia/cosmos-modules-pg
 
-Core Cosmos SDK modules for indexing auth, bank, and staking.
+Cosmos SDK modules for indexing blocks, auth, bank, and staking (formerly `@eclesia/core-modules-pg`).
 
 **Key Exports:**
 - `AuthModule` - Account management
 - `BankModule` - Balance tracking
 - `StakingModule` - Validator and delegation tracking
-- `FullBlocksModule` - Full block indexing
-- `MinimalBlocksModule` - Minimal block indexing
+- `Blocks.FullBlocksModule` - Full block indexing
+- `Blocks.MinimalBlocksModule` - Minimal block indexing
 
-**Entry Point:** `packages/core-modules/src/index.ts`
+**Entry Point:** `packages/cosmos-modules/src/index.ts`
+
+### @eclesia/gno-modules-pg
+
+gno.land modules.
+
+**Key Exports:**
+- `Blocks.FullBlocksModule`, `Blocks.MinimalBlocksModule` - Blocks, transactions with decoded messages, block-time averages
+- `MessagesModule` - `bank_sends`, `vm_calls`, `vm_add_packages`, `vm_runs`, `vm_enable_packages`, `vm_reject_packages`, `gno_events`
+- `PackagesModule` - `packages` (with approval `status`) and `package_files`, from deployments and genesis
+- `ValidatorsModule` - `validators` and `validator_power_history` (full mode)
+- `SessionsModule` - `auth_sessions`
+- `BankModule` - `bank_transfers`, `balances`, `balance_history` (full mode; balances read from the node per touched address)
+
+**Entry Point:** `packages/gno-modules/src/index.ts`
 
 ## Module Interfaces
 
@@ -73,8 +112,8 @@ Core Cosmos SDK modules for indexing auth, bank, and staking.
 All modules implement this interface:
 
 ```typescript
-interface IndexingModule {
-  indexer: EclesiaIndexer           // Reference to indexer
+interface IndexingModule<A extends ChainAdapter> {
+  indexer: EclesiaIndexer<A>        // Reference to indexer
   name: string                       // Unique module identifier
   depends: string[]                  // Module dependencies
   provides: string[]                 // Capabilities provided
@@ -89,14 +128,15 @@ interface IndexingModule {
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Types } from "@eclesia/indexer-engine";
 import { loadMigrations, PgIndexer } from "@eclesia/basic-pg-indexer";
+import { CosmosAdapter } from "@eclesia/chain-cosmos";
+import { EclesiaIndexer, Types } from "@eclesia/indexer-engine";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export class CustomModule implements Types.IndexingModule {
-  indexer!: Types.EclesiaIndexer;
-  private pgIndexer!: PgIndexer;
+export class CustomModule implements Types.IndexingModule<CosmosAdapter> {
+  indexer!: EclesiaIndexer<CosmosAdapter>;
+  private pgIndexer!: PgIndexer<CosmosAdapter>;
 
   name = "custom.module.v1";
   depends = ["cosmos.auth.v1beta1"];
@@ -107,7 +147,7 @@ export class CustomModule implements Types.IndexingModule {
     await this.pgIndexer.applyMigrations(this.name, loadMigrations(path.join(__dirname, "sql")), "custom_data");
   }
 
-  init(pgIndexer: PgIndexer) {
+  init(pgIndexer: PgIndexer<CosmosAdapter>) {
     this.pgIndexer = pgIndexer;
     this.indexer = pgIndexer.indexer;
 
@@ -124,7 +164,8 @@ export class CustomModule implements Types.IndexingModule {
 ### EclesiaIndexerConfig
 
 ```typescript
-type EclesiaIndexerConfig = {
+type EclesiaIndexerConfig<A extends ChainAdapter> = {
+  chain: A                          // cosmos() or gno()
   startHeight?: number
   endHeight?: number
   batchSize: number
@@ -158,7 +199,8 @@ type EclesiaIndexerConfig = {
 ### PgIndexerConfig
 
 ```typescript
-type PgIndexerConfig = {
+type PgIndexerConfig<A extends ChainAdapter> = {
+  chain: A                          // cosmos() or gno()
   startHeight?: number              // used only when the database holds no blocks yet
   batchSize: number
   modules: string[]
@@ -195,16 +237,19 @@ The indexer uses an event-driven architecture. Modules can listen to events:
 
 ### Core Events
 
-- `block` - New block indexed
-- `begin_block` - Begin block events
-- `end_block` - End block events
-- `tx_events` - Transaction events
-- `fatal-error` - Emitted when `maxRetries` is exceeded
+Block-level events are declared by the chain adapter:
+
+- Cosmos: `block`, `begin_block`, `end_block`, `tx_events`, `tx_memo`, and `/<type.url>` per message
+- gno: `block`, `begin_block`, `end_block`, `tx`, and `/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`, `/vm.m_enable_pkg`, `/vm.m_reject_pkg`, `/auth.m_create_session`, `/auth.m_revoke_session`, `/auth.m_revoke_all_sessions` per message
+
+Engine events, for every chain:
+
+- `fatal-error` - Emitted when `maxRetries` is exceeded or one block keeps failing
 - `periodic/small`, `periodic/medium`, `periodic/large` - Every 50, 100 and 1000 blocks
 - `genesis/array/<json.path>`, `genesis/value/<json.path>` - Streamed from the genesis file when genesis processing is enabled
 - `/<type.url>` (for example `/cosmos.bank.v1beta1.MsgSend`) - One event per message of that type in a successful transaction
 
-Handlers for one event run one after another in registration order, sharing the block's database transaction; the first failure stops the rest and rolls the block back. Every event handler is typed through the global `EventMap`. The engine and `@eclesia/core-modules-pg` ship their augmentations, so core events are typed out of the box; custom modules add theirs with `declare global { interface EventMap extends MyEvents {} }`.
+Handlers for one event run one after another in registration order, sharing the block's database transaction; the first failure stops the rest and rolls the block back. Every event handler is typed through the global `EventMap`. The engine, the chain adapter and the module packages ship their augmentations, so core events are typed out of the box; custom modules add theirs with `declare global { interface EventMap extends MyEvents {} }`. Use one chain adapter package per TypeScript project.
 
 ### Custom Events
 

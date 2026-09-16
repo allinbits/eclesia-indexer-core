@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   randomBytes,
 } from "node:crypto";
@@ -7,11 +6,11 @@ import {
   PgIndexer,
 } from "@eclesia/basic-pg-indexer";
 import {
-  AuthModule, BankModule, Blocks,
-} from "@eclesia/core-modules-pg";
+  cosmos, Mocks,
+} from "@eclesia/chain-cosmos";
 import {
-  Mocks,
-} from "@eclesia/indexer-engine";
+  AuthModule, BankModule, Blocks,
+} from "@eclesia/cosmos-modules-pg";
 import pg from "pg";
 import {
   afterAll, beforeAll, describe, expect, it,
@@ -69,6 +68,10 @@ const scenario = (cometVersion: "0.37" | "0.38") => {
       cometVersion,
     });
     const indexer = new PgIndexer({
+      // Point the engine at the mock instead of a network RPC
+      chain: cosmos({
+        connect: async () => mock,
+      }),
       startHeight: 1,
       endHeight: BLOCKS,
       batchSize: 10,
@@ -83,11 +86,6 @@ const scenario = (cometVersion: "0.37" | "0.38") => {
       dbConnectionString: connectionString,
       exitOnFatal: false,
     }, [new Blocks.FullBlocksModule([]), new AuthModule([]), new BankModule([])]);
-    // Point the engine at the mock instead of a network RPC
-    const engine = indexer.indexer as any;
-    engine.client = mock;
-    engine.blockClient = mock;
-    engine.connect = async () => true;
 
     await indexer.setup();
     await indexer.run(); // resolves once endHeight is reached and the engine has stopped

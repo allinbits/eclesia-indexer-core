@@ -1,14 +1,19 @@
 {
   "entryPoints": [
-    "packages/indexer-engine/src/index.ts",
-    "packages/basic-indexer-pg/src/index.ts",
-    "packages/core-modules/src/index.ts"
+    "packages/indexer-engine",
+    "packages/chain-cosmos",
+    "packages/chain-gno",
+    "packages/basic-indexer-pg",
+    "packages/cosmos-modules",
+    "packages/gno-modules"
   ],
   "out": "docs/api",
   "name": "Eclesia Indexer Core API",
   "readme": "README.md",
   "includeVersion": true,
-  "sort": ["source-order"],
+  "sort": [
+    "source-order"
+  ],
   "categorizeByGroup": true,
   "defaultCategory": "Core",
   "categoryOrder": [
@@ -29,5 +34,6 @@
     "**/*.bench.ts",
     "**/node_modules/**",
     "**/dist/**"
-  ]
+  ],
+  "entryPointStrategy": "packages"
 }

@@ -1,0 +1,61 @@
+import "dotenv/config";
+
+import {
+  defaultRegistryTypes,
+} from "@cosmjs/stargate";
+import {
+  PgIndexer, PgIndexerConfig,
+} from "@eclesia/basic-pg-indexer";
+import {
+  cosmos, CosmosAdapter,
+} from "@eclesia/chain-cosmos";
+{{MODULES_IMPORT}}
+
+const config: PgIndexerConfig<CosmosAdapter> = {
+  chain: cosmos(),
+  startHeight: Number(process.env.START_HEIGHT) || {{START_HEIGHT}},
+  batchSize: Number(process.env.QUEUE_SIZE) || {{QUEUE_SIZE}},
+  modules: [],
+  rpcUrl: process.env.RPC_ENDPOINT || "{{RPC_ENDPOINT}}",
+  // Refuse to index if the RPC serves another network (CHAIN_ID in .env, optional)
+  chainId: process.env.CHAIN_ID || undefined,
+  logLevel: process.env.LOG_LEVEL as PgIndexerConfig<CosmosAdapter>["logLevel"] ?? "debug",
+  usePolling: process.env.USE_POLLING == "true" || false,
+  pollingInterval: 3000,
+  processGenesis: process.env.PROCESS_GENESIS == "true" || false,
+  minimal: process.env.MINIMAL == "true" || false,
+  // Only validated by the engine when set, so leave it out unless genesis is processed
+  genesisPath: process.env.PROCESS_GENESIS == "true" ? (process.env.GENESIS_PATH || "./genesis.json") : undefined,
+  enablePrometheus: process.env.ENABLE_PROMETHEUS == "true" || false,
+  prometheusPort: Number(process.env.PROMETHEUS_PORT) || {{PROMETHEUS_PORT}},
+  // The real connection string, with its password, lives in .env
+  dbConnectionString: process.env.PG_CONNECTION_STRING || "postgres://postgres@localhost:5432/indexer",
+};
+
+// Initialize protocol registry
+// You may need to import specific protocol registries for your chain
+const registry = defaultRegistryTypes.concat([]); // Add your chain's proto registry here eg. defaultRegistryTypes.concat(myCustomRegistryTypes)
+
+// Initialize modules
+{{MODULES_INSTANTIATION}}
+
+const indexer = new PgIndexer(config, {{MODULES_ARRAY}});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.log("Unhandled Rejection at:", promise, "reason:", reason);
+  console.trace();
+  process.exit(1);
+});
+
+const run = async () => {
+  try {
+    await indexer.setup();
+    await indexer.run();
+  }
+  catch (error) {
+    console.error("Error running indexer:", error);
+    process.exit(1);
+  }
+};
+
+run();

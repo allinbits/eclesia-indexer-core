@@ -1,0 +1,58 @@
+import "dotenv/config";
+
+import {
+  PgIndexer, PgIndexerConfig,
+} from "@eclesia/basic-pg-indexer";
+import {
+  gno, GnoAdapter,
+} from "@eclesia/chain-gno";
+{{MODULES_IMPORT}}
+
+const config: PgIndexerConfig<GnoAdapter> = {
+  // Public RPC endpoints block bursts: pace the JSON-RPC calls (three per block in full mode)
+  chain: gno({
+    requestsPerSecond: Number(process.env.RPC_REQUESTS_PER_SECOND) || undefined,
+  }),
+  startHeight: Number(process.env.START_HEIGHT) || {{START_HEIGHT}},
+  batchSize: Number(process.env.QUEUE_SIZE) || {{QUEUE_SIZE}},
+  modules: [],
+  rpcUrl: process.env.RPC_ENDPOINT || "{{RPC_ENDPOINT}}",
+  // Refuse to index if the RPC serves another network (CHAIN_ID in .env, optional)
+  chainId: process.env.CHAIN_ID || undefined,
+  logLevel: process.env.LOG_LEVEL as PgIndexerConfig<GnoAdapter>["logLevel"] ?? "debug",
+  // Tendermint2 RPC has no block subscription: the engine polls for new heights
+  usePolling: true,
+  pollingInterval: 1000,
+  processGenesis: process.env.PROCESS_GENESIS == "true" || false,
+  minimal: process.env.MINIMAL == "true" || false,
+  // Only validated by the engine when set, so leave it out unless genesis is processed
+  genesisPath: process.env.PROCESS_GENESIS == "true" ? (process.env.GENESIS_PATH || "./genesis.json") : undefined,
+  enablePrometheus: process.env.ENABLE_PROMETHEUS == "true" || false,
+  prometheusPort: Number(process.env.PROMETHEUS_PORT) || {{PROMETHEUS_PORT}},
+  // The real connection string, with its password, lives in .env
+  dbConnectionString: process.env.PG_CONNECTION_STRING || "postgres://postgres@localhost:5432/indexer",
+};
+
+// Initialize modules
+{{MODULES_INSTANTIATION}}
+
+const indexer = new PgIndexer(config, {{MODULES_ARRAY}});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.log("Unhandled Rejection at:", promise, "reason:", reason);
+  console.trace();
+  process.exit(1);
+});
+
+const run = async () => {
+  try {
+    await indexer.setup();
+    await indexer.run();
+  }
+  catch (error) {
+    console.error("Error running indexer:", error);
+    process.exit(1);
+  }
+};
+
+run();

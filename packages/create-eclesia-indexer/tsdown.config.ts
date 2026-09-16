@@ -3,7 +3,10 @@ import {
 } from "tsdown";
 
 export default defineConfig({
-  entry: "src/index.ts",
+  entry: {
+    index: "src/index.ts",             // The CLI
+    scaffold: "src/create-indexer.ts", // Programmatic API: scaffold(config, dir)
+  },
   format: ["esm", "cjs"],
   dts: true,
   clean: true,

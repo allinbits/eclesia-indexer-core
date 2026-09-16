@@ -33,6 +33,7 @@ You'll be asked a series of questions to configure your indexer. Use the followi
 
 | Prompt | Value | Notes |
 |--------|-------|-------|
+| **Chain family** | `Cosmos SDK (CometBFT)` | |
 | **Project name** | `ibc-indexer` | You can use any name you prefer |
 | **Chain name** | `Cosmos Hub Mainnet` | |
 | **Chain address prefix** | `cosmos` | Cosmos Hub's address prefix |
@@ -119,6 +120,9 @@ import {
   loadMigrations, PgIndexer,
 } from "@eclesia/basic-pg-indexer";
 import {
+  CosmosAdapter, TxResult,
+} from "@eclesia/chain-cosmos";
+import {
   EclesiaIndexer, Types,
 } from "@eclesia/indexer-engine";
 
@@ -129,14 +133,15 @@ const __dirname = path.dirname(__filename);
 export type Events = {
 
   "/ibc.applications.transfer.v1.MsgTransfer": {
-    value: Types.TxResult<Uint8Array>
+    value: TxResult<Uint8Array>
   }
 };
 
-export class IbcModule implements Types.IndexingModule {
-  indexer!: EclesiaIndexer;
+// The module is typed on the Cosmos adapter: it can only be installed on a Cosmos indexer
+export class IbcModule implements Types.IndexingModule<CosmosAdapter> {
+  indexer!: EclesiaIndexer<CosmosAdapter>;
 
-  private pgIndexer!: PgIndexer;
+  private pgIndexer!: PgIndexer<CosmosAdapter>;
 
   private registry: [string, GeneratedType][];
 
@@ -159,7 +164,7 @@ export class IbcModule implements Types.IndexingModule {
     await this.pgIndexer.applyMigrations(this.name, loadMigrations(path.join(__dirname, "sql")), "ibc_statistics");
   }
 
-  init(pgIndexer: PgIndexer): void {
+  init(pgIndexer: PgIndexer<CosmosAdapter>): void {
     this.pgIndexer = pgIndexer;
     this.indexer = pgIndexer.indexer;
 
@@ -236,13 +241,9 @@ export class IbcModule implements Types.IndexingModule {
 
 ## Step 6: Register Custom Events
 
-Events from the engine and from the core modules are already typed: both packages ship a global `EventMap` augmentation. Your own module's events are not known to it yet, so create the file `src/events.d.ts` to add them:
+Events from the engine, the chain adapter and the core modules are already typed: those packages ship a global `EventMap` augmentation. Your own module's events are not known to it yet, so create the file `src/events.d.ts` to add them:
 
 ```typescript
-import {
-  Types,
-} from "@eclesia/indexer-engine";
-
 import {
   Events as IbcEvents,
 } from "./modules/ibc_module";
@@ -250,8 +251,7 @@ import {
 declare global {
 
   export interface EventMap
-    extends IbcEvents,
-    Types.Events {
+    extends IbcEvents {
   }
 }
 ```
@@ -266,7 +266,7 @@ Open `src/index.ts` and modify it to include your custom module:
 >>>
 import {
   Blocks,
-} from "@eclesia/core-modules-pg";
+} from "@eclesia/cosmos-modules-pg";
 // Import your new custom module
 + import {
 +   IbcModule,

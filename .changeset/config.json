@@ -11,6 +11,10 @@
     [
       "@eclesia/indexer-engine",
       "@eclesia/basic-pg-indexer",
+      "@eclesia/chain-cosmos",
+      "@eclesia/chain-gno",
+      "@eclesia/gno-modules-pg",
+      "@eclesia/cosmos-modules-pg",
       "@eclesia/core-modules-pg",
       "create-eclesia-indexer"
     ]
