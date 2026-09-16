@@ -70,3 +70,10 @@ decodes `/vm.m_enable_pkg` and `/vm.m_reject_pkg`, and the auth module's session
 the packages module gets the approval columns and a generated `status` (`submitted`,
 `enabled`, `rejected`). Unknown message types are now warned about once per type instead of
 logged at debug level per transaction.
+
+Every decoded gno transaction now carries its `signers`, `feePayer`, `sessionAddress` and
+`decoded` messages, and the full blocks module stores signers and session address per
+transaction. Two more gno modules: `SessionsModule` (session keys with derived addresses,
+limits and revocation) and `BankModule` (transfer events, and exact balances read from the
+node for every address a block touches, with genesis balances and a change history). The
+mock Tendermint2 node cycles through all nine message types and emits transfer events.

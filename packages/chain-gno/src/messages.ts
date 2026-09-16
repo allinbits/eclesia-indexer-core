@@ -34,6 +34,34 @@ export const messageDecoders: Record<string, MessageDecoder> = {
   [MSG_REVOKE_ALL_SESSIONS]: gno.gno.auth.auth.MsgRevokeAllSessions,
 };
 
+/**
+ * The accounts a decoded message is signed by, in the order gno lists them (`GetSigners`). The
+ * first signer of a transaction's first message pays the fee. Unknown types yield none.
+ */
+export function messageSigners(typeUrl: string, msg: unknown): string[] {
+  const m = msg as Record<string, unknown>;
+  const pick = (...keys: string[]) => keys.map(k => m[k]).filter((v): v is string => typeof v === "string" && v !== "");
+  switch (typeUrl) {
+    case MSG_SEND:
+      return pick("fromAddress");
+    case MSG_CALL:
+    case MSG_RUN:
+      return pick("caller");
+    case MSG_ADD_PACKAGE:
+      return pick("creator");
+    case MSG_ENABLE_PACKAGE:
+      return pick("approver");
+    case MSG_REJECT_PACKAGE:
+      return pick("sender");
+    case MSG_CREATE_SESSION:
+    case MSG_REVOKE_SESSION:
+    case MSG_REVOKE_ALL_SESSIONS:
+      return pick("creator");
+    default:
+      return [];
+  }
+}
+
 /** Decoded message types, by type URL */
 export type MsgSend = gno.gno.bank.bank.MsgSend;
 export type MsgCall = gno.gno.vm.vm.MsgCall;

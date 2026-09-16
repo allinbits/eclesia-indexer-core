@@ -58,9 +58,10 @@ describe("MessagesModule", () => {
     await h.processBlock(6);
 
     const batches = h.calls("add-gno-events");
-    // Only the call and the deployment emit events in the mock
-    expect(batches.length).toBe(2);
-    const [height, phase, txHash, txIndex, , aminoTypes, types, pkgPaths, attrs] = batches[0];
+    // The send emits a transfer event, the call a realm event and the deployment a storage event
+    expect(batches.length).toBe(3);
+    expect(batches[0][5]).toEqual(["/bank.TransferEvent"]);
+    const [height, phase, txHash, txIndex, , aminoTypes, types, pkgPaths, attrs] = batches[1];
     expect(height).toBe(6);
     expect(phase).toBe("tx");
     expect(txHash).toMatch(/^[0-9A-F]{64}$/);
@@ -74,8 +75,8 @@ describe("MessagesModule", () => {
         value: "6",
       },
     ]);
-    expect(batches[1][5]).toEqual(["/tm.StorageDepositEvent"]);
-    expect(JSON.parse((batches[1][9] as string[])[0]).bytes_delta).toBe(1024);
+    expect(batches[2][5]).toEqual(["/tm.StorageDepositEvent"]);
+    expect(JSON.parse((batches[2][9] as string[])[0]).bytes_delta).toBe(1024);
   });
 
   it("can leave events out", async () => {

@@ -12,7 +12,7 @@ import {
   gno, Mocks, parseGenesisBalance,
 } from "@eclesia/chain-gno";
 import {
-  Blocks, MessagesModule, PackagesModule, ValidatorsModule,
+  BankModule, Blocks, MessagesModule, PackagesModule, SessionsModule, ValidatorsModule,
 } from "@eclesia/gno-modules-pg";
 import pg from "pg";
 import {
@@ -30,7 +30,9 @@ import {
 
 const admin = process.env.E2E_PG_CONNECTION_STRING;
 const BLOCKS = 110;
-const TXS_PER_BLOCK = 4;
+// Nine transactions cycle through every message type: send, call, addpkg, run, enable, reject,
+// create session, revoke session, revoke all; the fourth and eighth (run, revoke session) fail
+const TXS_PER_BLOCK = 9;
 const GENESIS_REALM = "gno.land/r/demo/hello";
 
 describe.skipIf(!admin)("gno end-to-end", () => {
@@ -62,9 +64,9 @@ describe.skipIf(!admin)("gno end-to-end", () => {
           // Amino string form, as gnoland and gnodev write it
           Mocks.syntheticAddress(1) + "=1000000000ugnot",
           Mocks.syntheticAddress(3) + "=100ugnot;vesting=100ugnot,0,1800000000;type=delayed",
-          // Object form some tools write
+          // Object form some tools write; this account never transacts, so its genesis row stays at height 0
           {
-            address: Mocks.syntheticAddress(2),
+            address: Mocks.syntheticAddress(77),
             amount: "500ugnot",
           },
         ],
@@ -132,7 +134,7 @@ describe.skipIf(!admin)("gno end-to-end", () => {
       txPerBlock: TXS_PER_BLOCK,
       startHeight: 1,
       endHeight: BLOCKS,
-      failEvery: 4, // the fourth transaction of every block (a MsgRun) fails
+      failEvery: 4, // the fourth and eighth transactions of every block (a MsgRun and a MsgRevokeSession) fail
     });
     const indexer = new PgIndexer({
       chain: gno({
@@ -153,7 +155,9 @@ describe.skipIf(!admin)("gno end-to-end", () => {
       enablePrometheus: false,
       dbConnectionString: connectionString,
       exitOnFatal: false,
-    }, [new Blocks.FullBlocksModule(), new MessagesModule(), new PackagesModule(), new ValidatorsModule()]);
+    }, [new Blocks.FullBlocksModule(), new MessagesModule(), new PackagesModule(), new ValidatorsModule(), new SessionsModule(), new BankModule({
+      trackAddresses: [Mocks.syntheticAddress(99)],
+    })]);
     // The engine streams the balances only when something listens for them
     const genesisBalances: ReturnType<typeof parseGenesisBalance>[] = [];
     indexer.indexer.on("genesis/array/app_state.balances", async (event) => {
@@ -187,7 +191,7 @@ describe.skipIf(!admin)("gno end-to-end", () => {
       });
       const firstBlock = await db.query("SELECT total_gas::text, num_txs, jsonb_array_length(signed_by) AS signers FROM blocks WHERE height = 2");
       expect(firstBlock.rows[0]).toEqual({
-        total_gas: String(150000 * 3 + 200000),
+        total_gas: String(150000 * 7 + 200000 * 2),
         num_txs: TXS_PER_BLOCK,
         signers: 3,
       });
@@ -195,8 +199,14 @@ describe.skipIf(!admin)("gno end-to-end", () => {
       const txs = await db.query("SELECT count(*)::int AS n, count(*) FILTER (WHERE NOT success)::int AS failed, count(DISTINCT height)::int AS heights FROM transactions");
       expect(txs.rows[0]).toEqual({
         n: BLOCKS * TXS_PER_BLOCK,
-        failed: BLOCKS,
+        failed: BLOCKS * 2,
         heights: BLOCKS,
+      });
+      // Signers and session keys are recorded per transaction; only the realm call is session-signed
+      const signed = await db.query("SELECT count(*) FILTER (WHERE session_address IS NOT NULL)::int AS session_signed, count(*) FILTER (WHERE signers = ARRAY[$1]::text[])::int AS by_first FROM transactions", [Mocks.syntheticAddress(1)]);
+      expect(signed.rows[0]).toEqual({
+        session_signed: BLOCKS,
+        by_first: BLOCKS * 5, // send, call, create session, revoke session, revoke all
       });
       const failedTx = await db.query("SELECT error->>'@type' AS error_type, messages->0->>'@type' AS msg_type FROM transactions WHERE height = 5 AND index = 3");
       expect(failedTx.rows[0]).toEqual({
@@ -204,17 +214,23 @@ describe.skipIf(!admin)("gno end-to-end", () => {
         msg_type: "/vm.m_run",
       });
 
-      const counts = await db.query("SELECT (SELECT count(*) FROM bank_sends)::int AS sends, (SELECT count(*) FROM vm_calls)::int AS calls, (SELECT count(*) FROM vm_add_packages)::int AS addpkgs, (SELECT count(*) FROM vm_runs)::int AS runs");
+      const counts = await db.query("SELECT (SELECT count(*) FROM bank_sends)::int AS sends, (SELECT count(*) FROM vm_calls)::int AS calls, (SELECT count(*) FROM vm_add_packages)::int AS addpkgs, (SELECT count(*) FROM vm_runs)::int AS runs, (SELECT count(*) FROM vm_enable_packages)::int AS enables, (SELECT count(*) FROM vm_reject_packages)::int AS rejects");
       expect(counts.rows[0]).toEqual({
         sends: BLOCKS,
         calls: BLOCKS,
         addpkgs: BLOCKS,
         runs: 0,
+        enables: BLOCKS,
+        rejects: BLOCKS,
       });
 
-      // One realm event per call and one storage event per deployment
+      // One transfer per send, one realm event per call and one storage event per deployment
       const events = await db.query("SELECT amino_type, count(*)::int AS n FROM gno_events GROUP BY amino_type ORDER BY amino_type");
       expect(events.rows).toEqual([
+        {
+          amino_type: "/bank.TransferEvent",
+          n: BLOCKS,
+        },
         {
           amino_type: "/tm.Event",
           n: BLOCKS,
@@ -233,16 +249,63 @@ describe.skipIf(!admin)("gno end-to-end", () => {
         count: "42",
       });
 
-      // Every deployment from the chain plus the realm deployed at genesis, all with sources
-      const packages = await db.query("SELECT count(*)::int AS n, count(*) FILTER (WHERE from_genesis)::int AS genesis, count(*) FILTER (WHERE is_realm)::int AS realms, count(*) FILTER (WHERE status = 'enabled')::int AS enabled, count(*) FILTER (WHERE status = 'submitted')::int AS submitted FROM packages");
+      // Every deployment from the chain plus the realm deployed at genesis, all with sources; the mock
+      // enables each block's deployment in the same block, so every one of them is enabled
+      const packages = await db.query("SELECT count(*)::int AS n, count(*) FILTER (WHERE from_genesis)::int AS genesis, count(*) FILTER (WHERE is_realm)::int AS realms, count(*) FILTER (WHERE status = 'enabled')::int AS enabled, count(*) FILTER (WHERE status = 'submitted')::int AS submitted, count(*) FILTER (WHERE enabled_by = $1)::int AS approved FROM packages", [Mocks.syntheticAddress(9)]);
       expect(packages.rows[0]).toEqual({
         n: BLOCKS + 1,
         genesis: 1,
         realms: BLOCKS + 1,
-        // The genesis realm counts as enabled; deployments on the mock chain carry no approval
-        enabled: 1,
-        submitted: BLOCKS,
+        enabled: BLOCKS + 1,
+        submitted: 0,
+        approved: BLOCKS,
       });
+      const approval = await db.query("SELECT pkg_height::int, enabled_height::int FROM packages WHERE path = $1", [Mocks.MOCK_REALM + "_42"]);
+      expect(approval.rows[0]).toEqual({
+        pkg_height: 42,
+        enabled_height: 42,
+      });
+
+      // Sessions: one created per block by the first account; the revoke by key fails, the revoke-all lands
+      const sessions = await db.query("SELECT count(*)::int AS n, count(*) FILTER (WHERE revoked_all)::int AS revoked_all, count(DISTINCT session_address)::int AS keys, bool_and(master_address = $1) AS by_master FROM auth_sessions", [Mocks.syntheticAddress(1)]);
+      expect(sessions.rows[0]).toEqual({
+        n: BLOCKS,
+        revoked_all: BLOCKS,
+        keys: 1,
+        by_master: true,
+      });
+
+      // Bank: one transfer per send, and balances read from the node for every touched address at each height
+      const transfers = await db.query("SELECT count(*)::int AS n, bool_and(from_address = $1 AND to_address = $2 AND coins = '10ugnot') AS same FROM bank_transfers", [Mocks.syntheticAddress(1), Mocks.syntheticAddress(2)]);
+      expect(transfers.rows[0]).toEqual({
+        n: BLOCKS,
+        same: true,
+      });
+      const balances = await db.query("SELECT count(*)::int AS n, bool_and(amount = 1000000) AS mock_value, max(height)::int AS height FROM balances WHERE height > 0");
+      // Every signer (accounts 1, 3, 4 and 9), both transfer parties (1 and 2) and the tracked collector
+      // (99): the mock answers the same balance for all, so each was written once, at block 1
+      expect(balances.rows[0]).toEqual({
+        n: 6,
+        mock_value: true,
+        height: 1,
+      });
+      // Genesis balances of accounts the chain later touched were re-read at block 1; the idle one keeps its genesis row
+      const genesisBalances = await db.query("SELECT address, amount::text, height::int FROM balances WHERE height = 0 ORDER BY address");
+      expect(genesisBalances.rows).toEqual([
+        {
+          address: Mocks.syntheticAddress(77),
+          amount: "500",
+          height: 0,
+        },
+      ]);
+      const refreshed = await db.query("SELECT amount::text, height::int FROM balances WHERE address = $1 AND denom = 'ugnot'", [Mocks.syntheticAddress(1)]);
+      expect(refreshed.rows[0]).toEqual({
+        amount: "1000000",
+        height: 1,
+      });
+      const balanceHistory = await db.query("SELECT count(*)::int AS n FROM balance_history");
+      // Balances never change on the mock chain after the first read of each address
+      expect(balanceHistory.rows[0].n).toBe(6);
       const genesisPkg = await db.query("SELECT creator, height, genesis_block_height::int, timestamp, files_count FROM packages WHERE path = $1", [GENESIS_REALM]);
       expect(genesisPkg.rows[0]).toEqual({
         creator: Mocks.syntheticAddress(7),
@@ -273,7 +336,7 @@ describe.skipIf(!admin)("gno end-to-end", () => {
       });
 
       const migrations = await db.query("SELECT module, version FROM schema_migrations ORDER BY module, version");
-      expect(migrations.rows.map(r => `${r.module}@${r.version}`)).toEqual(["blocks-full@1", "gno.messages@1", "gno.messages@2", "gno.packages@1", "gno.packages@2", "gno.validators@1"]);
+      expect(migrations.rows.map(r => `${r.module}@${r.version}`)).toEqual(["blocks-full@1", "blocks-full@2", "gno.bank@1", "gno.messages@1", "gno.messages@2", "gno.packages@1", "gno.packages@2", "gno.sessions@1", "gno.validators@1"]);
 
       const genesisImport = await db.query("SELECT status FROM genesis_import");
       expect(genesisImport.rows[0].status).toBe("complete");

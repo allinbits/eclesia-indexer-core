@@ -10,10 +10,13 @@ import {
 } from "@gnolang/tm2-rpc";
 
 import {
+  sessionAddressOf,
+} from "./addresses.js";
+import {
   decodeBlockResults, RawBlockResults,
 } from "./block-results.js";
 import {
-  decodeTx, MessageDecoder, messageDecoders,
+  decodeTx, MessageDecoder, messageDecoders, messageSigners,
 } from "./messages.js";
 import {
   RateLimiter, throttledRpcClient,
@@ -255,7 +258,7 @@ export class GnoAdapter implements ChainAdapter<Tm2Client, GnoBlock> {
 
     const results = blockResults.results.deliverTx ?? [];
     for (let i = 0; i < block.block.txs.length; i++) {
-      const tx = decodeGnoTx(block.block.txs[i], i, results[i]);
+      const tx = decodeGnoTx(block.block.txs[i], i, results[i], this.decoders);
       await emit("tx", {
         value: tx,
         height,
@@ -267,8 +270,7 @@ export class GnoAdapter implements ChainAdapter<Tm2Client, GnoBlock> {
       }
       for (let m = 0; m < tx.messages.length; m++) {
         const message = tx.messages[m];
-        const decoder = this.decoders[message.typeUrl];
-        if (!decoder) {
+        if (tx.decoded[m] === undefined) {
           if (!this.unknownTypes.has(message.typeUrl)) {
             this.unknownTypes.add(message.typeUrl);
             log.warn("No decoder for message type " + message.typeUrl + " (first seen in tx " + tx.hash + "); its messages are kept raw in the tx event and skipped as events. Add one through the adapter's decoders option.");
@@ -280,7 +282,7 @@ export class GnoAdapter implements ChainAdapter<Tm2Client, GnoBlock> {
         }
         await emit(message.typeUrl as never, {
           value: {
-            msg: decoder.decode(message.value),
+            msg: tx.decoded[m],
             txHash: tx.hash,
             msgIndex: m,
             events: tx.events,
@@ -335,10 +337,22 @@ export class GnoAdapter implements ChainAdapter<Tm2Client, GnoBlock> {
  * Decodes one raw transaction and joins it with its execution result. The hash is the sha256 of
  * the raw bytes in upper-case hex, which is how gnoland and gnoweb display it.
  */
-export function decodeGnoTx(raw: Uint8Array, index: number, result: TxResult | undefined): GnoTx {
+export function decodeGnoTx(raw: Uint8Array, index: number, result: TxResult | undefined, decoders: Record<string, MessageDecoder> = messageDecoders): GnoTx {
   const tx = decodeTx(raw);
   // tm2-rpc types the error as always present; the node sends null on success
   const error = (result?.responseBase.error ?? null) as GnoTxError | null;
+  const decoded = tx.messages.map(message => decoders[message.typeUrl]?.decode(message.value));
+  const signers: string[] = [];
+  tx.messages.forEach((message, i) => {
+    if (decoded[i] === undefined) {
+      return;
+    }
+    for (const signer of messageSigners(message.typeUrl, decoded[i])) {
+      if (!signers.includes(signer)) {
+        signers.push(signer);
+      }
+    }
+  });
   return {
     hash: createHash("sha256").update(raw).digest("hex").toUpperCase(),
     index,
@@ -349,7 +363,11 @@ export function decodeGnoTx(raw: Uint8Array, index: number, result: TxResult | u
     fee: tx.fee,
     memo: tx.memo,
     messages: tx.messages,
+    decoded,
     signatures: tx.signatures,
+    signers,
+    feePayer: signers[0] ?? null,
+    sessionAddress: sessionAddressOf(tx.signatures[0]?.sessionAddr),
     events: result?.responseBase.events ?? [],
     log: result?.responseBase.log ?? "",
     info: result?.responseBase.info ?? "",

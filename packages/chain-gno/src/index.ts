@@ -6,10 +6,16 @@ export {
   decodeGnoTx, gno, GnoAdapter, type GnoAdapterOptions,
 } from "./adapter.js";
 export {
+  ADDRESS_PREFIX, PUBKEY_ED25519, PUBKEY_SECP256K1, pubKeyAddress, type PubKeyAny, pubKeyBytes, sessionAddressOf, ZERO_ADDRESS,
+} from "./addresses.js";
+export {
+  type Coin, parseCoins, parseTransferEvent, TRANSFER_EVENT, type TransferEvent,
+} from "./coins.js";
+export {
   parseGenesisBalance,
 } from "./genesis.js";
 export {
-  decodeTx, encodeTx, type MemFile, type MemPackage, type MessageDecoder, messageDecoders, MSG_ADD_PACKAGE, MSG_CALL, MSG_CREATE_SESSION, MSG_ENABLE_PACKAGE, MSG_REJECT_PACKAGE, MSG_REVOKE_ALL_SESSIONS, MSG_REVOKE_SESSION, MSG_RUN, MSG_SEND,
+  decodeTx, encodeTx, type MemFile, type MemPackage, type MessageDecoder, messageDecoders, messageSigners, MSG_ADD_PACKAGE, MSG_CALL, MSG_CREATE_SESSION, MSG_ENABLE_PACKAGE, MSG_REJECT_PACKAGE, MSG_REVOKE_ALL_SESSIONS, MSG_REVOKE_SESSION, MSG_RUN, MSG_SEND,
   type MsgAddPackage, type MsgCall, type MsgCreateSession, type MsgEnablePackage, type MsgRejectPackage, type MsgRevokeAllSessions, type MsgRevokeSession, type MsgRun, type MsgSend, type Tx, type TxFee, type TxSignature,
 } from "./messages.js";
 export * as Mocks from "./mocks/index.js";

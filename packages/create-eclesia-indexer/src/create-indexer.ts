@@ -99,6 +99,16 @@ const gnoModules = [
     value: "validators",
     hint: "Validator set and voting power history (full mode)",
   },
+  {
+    name: "Sessions",
+    value: "sessions",
+    hint: "Session keys: creation, limits and revocation",
+  },
+  {
+    name: "Bank",
+    value: "bank",
+    hint: "Transfers and exact balances read from the node (full mode)",
+  },
 ];
 
 /** Per-chain defaults and prompt wording */
@@ -128,7 +138,7 @@ const CHAINS: Record<ChainFamily, {
 /** Modules offered for a chain, given the indexing mode. Full-mode modules disappear in minimal mode. */
 export function modulesFor(chain: ChainFamily, minimal: boolean, processGenesis: boolean, startHeight: number): typeof cosmosModules {
   if (chain === "gno") {
-    return minimal ? gnoModules.filter(m => m.value !== "validators") : gnoModules;
+    return minimal ? gnoModules.filter(m => m.value !== "validators" && m.value !== "bank") : gnoModules;
   }
   const staking = startHeight == 1 && !minimal && processGenesis;
   return staking ? cosmosModules : cosmosModules.filter(m => m.value !== "staking");
@@ -511,6 +521,12 @@ export function generateModulesImport(config: ProjectConfig): string {
     if (config.modules.includes("Validators") && !config.minimal) {
       imports.push("  ValidatorsModule");
     }
+    if (config.modules.includes("Sessions")) {
+      imports.push("  SessionsModule");
+    }
+    if (config.modules.includes("Bank") && !config.minimal) {
+      imports.push("  BankModule");
+    }
     return `import {\n${imports.join(",\n")}\n} from "@eclesia/gno-modules-pg";\n`;
   }
   if (config.modules.includes("Auth")) {
@@ -539,6 +555,13 @@ export function generateModulesInstantiation(config: ProjectConfig): string {
     }
     if (config.modules.includes("Validators") && !config.minimal) {
       instantiations.push("const validatorsModule = new ValidatorsModule();");
+    }
+    if (config.modules.includes("Sessions")) {
+      instantiations.push("const sessionsModule = new SessionsModule();");
+    }
+    if (config.modules.includes("Bank") && !config.minimal) {
+      instantiations.push("// Collectors receive fees and deposits without a transfer event; list them in BANK_TRACK_ADDRESSES");
+      instantiations.push("const bankModule = new BankModule({\n  trackAddresses: (process.env.BANK_TRACK_ADDRESSES ?? \"\").split(\",\").map(a => a.trim()).filter(Boolean),\n});");
     }
     return instantiations.join("\n");
   }
@@ -574,6 +597,12 @@ export function generateModulesArray(config: ProjectConfig): string {
     }
     if (config.modules.includes("Validators") && !config.minimal) {
       moduleNames.push("validatorsModule");
+    }
+    if (config.modules.includes("Sessions")) {
+      moduleNames.push("sessionsModule");
+    }
+    if (config.modules.includes("Bank") && !config.minimal) {
+      moduleNames.push("bankModule");
     }
     return `[${moduleNames.join(", ")}]`;
   }

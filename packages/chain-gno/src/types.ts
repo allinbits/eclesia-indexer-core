@@ -30,8 +30,12 @@ export type GnoTx = {
   gasUsed: bigint
   fee: TxFee | undefined             // gasWanted limit and gasFee ("<amount><denom>")
   memo: string
-  messages: Tx["messages"]           // Raw messages: type URL plus encoded bytes; decoded ones come as their own events
+  messages: Tx["messages"]           // Raw messages: type URL plus encoded bytes
+  decoded: (unknown | undefined)[]  // The decoded form of each message, undefined where no decoder is registered
   signatures: TxSignature[]
+  signers: string[]                  // Accounts the messages are signed by, first message first, deduplicated
+  feePayer: string | null            // The first signer, who pays the gas fee (also when the transaction fails)
+  sessionAddress: string | null      // Session key the transaction was signed with, null for a master-key signature
   events: readonly Event[]           // Events the whole transaction emitted (gno has no per-message attribution)
   log: string
   info: string

@@ -62,7 +62,7 @@ Eclesia is a monorepo of packages in three layers: a chain-agnostic engine, one 
 | **`@eclesia/chain-gno`** | gno.land adapter: tm2-rpc client with request pacing and batching, decoded messages (`/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`, `/vm.m_enable_pkg`, `/vm.m_reject_pkg`), genesis import, a mock Tendermint2 node | Every gno indexer |
 | **`@eclesia/basic-pg-indexer`** | PostgreSQL implementation: connection, transactions, migrations, module lifecycle | Most common use case |
 | **`@eclesia/cosmos-modules-pg`** | Pre-built modules for Cosmos SDK chains (blocks, auth, bank, staking) | Ready-to-use indexing modules |
-| **`@eclesia/gno-modules-pg`** | Pre-built modules for gno.land (blocks, messages and events, packages, validators) | Ready-to-use indexing modules |
+| **`@eclesia/gno-modules-pg`** | Pre-built modules for gno.land (blocks, messages and events, packages, validators, sessions, bank) | Ready-to-use indexing modules |
 | **`create-eclesia-indexer`** | CLI tool for scaffolding new indexer projects for either chain family | Getting started quickly |
 
 `@eclesia/core-modules-pg` was renamed to `@eclesia/cosmos-modules-pg` in 4.0; the old name is published once more as a re-export.
@@ -162,6 +162,8 @@ Pre-built indexing modules for gno.land.
 - **`MessagesModule`**: one table per message type (`bank_sends`, `vm_calls`, `vm_add_packages`, `vm_runs`, `vm_enable_packages`, `vm_reject_packages`) plus every chain event with the realm that emitted it in `gno_events`
 - **`PackagesModule`**: registry of packages and realms with their sources, from deployments and from genesis, with the approval state (`submitted`, `enabled`, `rejected`) on chains that park deployments until an approver enables them
 - **`ValidatorsModule`**: validator set block by block with a voting-power history. Needs full mode (`minimal: false`)
+- **`SessionsModule`**: session keys (`auth_sessions`): who created them, their derived address, expiry, allowed paths, spend allowance, and when they were revoked
+- **`BankModule`**: every transfer event (`bank_transfers`) and exact balances (`balances`, `balance_history`) read from the node for every address a block touches, genesis balances included. Fees and storage deposits move coins without an event, so balances are read rather than derived; pass the fee and deposit collectors as `trackAddresses`. Needs full mode
 
 ### 🛠️ Project Generator (`create-eclesia-indexer`)
 

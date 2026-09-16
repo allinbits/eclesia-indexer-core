@@ -100,7 +100,7 @@ export class FullBlocksModule implements Types.IndexingModule<GnoAdapter> {
       const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-transaction") ?? void 0;
       await db.query({
         name: "add-tx",
-        text: "INSERT INTO transactions(hash, height, index, success, messages, memo, signatures, fee, gas_wanted, gas_used, error, log, events) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+        text: "INSERT INTO transactions(hash, height, index, success, messages, memo, signatures, fee, gas_wanted, gas_used, error, log, events, signers, session_address) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
         values: [
           tx.hash,
           event.height,
@@ -122,6 +122,8 @@ export class FullBlocksModule implements Types.IndexingModule<GnoAdapter> {
           // eslint-disable-next-line no-control-regex
           tx.log.replace(/\u0000/g, ""),
           jsonStringify(tx.events),
+          tx.signers,
+          tx.sessionAddress,
         ],
       });
       endTimer?.();

@@ -69,6 +69,7 @@ export function harness(): Harness {
       },
       on,
       asyncEmit: vi.fn(),
+      callABCI: vi.fn(async () => new Uint8Array()),
       prometheus: null,
     },
   } as unknown as PgIndexer<GnoAdapter>;

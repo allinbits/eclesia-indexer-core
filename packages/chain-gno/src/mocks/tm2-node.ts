@@ -18,7 +18,13 @@ import {
 } from "@gnolang/tm2-rpc";
 
 import {
-  encodeTx, MSG_ADD_PACKAGE, MSG_CALL, MSG_RUN, MSG_SEND,
+  PUBKEY_SECP256K1, ZERO_ADDRESS,
+} from "../addresses.js";
+import {
+  TRANSFER_EVENT,
+} from "../coins.js";
+import {
+  encodeTx, MSG_ADD_PACKAGE, MSG_CALL, MSG_CREATE_SESSION, MSG_ENABLE_PACKAGE, MSG_REJECT_PACKAGE, MSG_REVOKE_ALL_SESSIONS, MSG_REVOKE_SESSION, MSG_RUN, MSG_SEND,
 } from "../messages.js";
 
 /** Amino type of the events realms emit through chain.Emit (package `tm`, struct `Event`) */
@@ -43,8 +49,25 @@ export interface MockTm2Config {
   failEvery?: number
 }
 
-/** Message type URLs a block's transactions cycle through, by transaction index */
-export const MOCK_MESSAGE_CYCLE = [MSG_SEND, MSG_CALL, MSG_ADD_PACKAGE, MSG_RUN] as const;
+/**
+ * Message type URLs a block's transactions cycle through, by transaction index. The first four
+ * are the classic VM messages; a block with more transactions also carries the approval and
+ * session messages, so `txPerBlock: 9` exercises every decoder.
+ */
+export const MOCK_MESSAGE_CYCLE = [MSG_SEND, MSG_CALL, MSG_ADD_PACKAGE, MSG_RUN, MSG_ENABLE_PACKAGE, MSG_REJECT_PACKAGE, MSG_CREATE_SESSION, MSG_REVOKE_SESSION, MSG_REVOKE_ALL_SESSIONS] as const;
+
+/** The session key the mock's session messages create and revoke, and that signs its MsgCall */
+export function mockSessionKey(): {
+  typeUrl: string
+  value: Uint8Array
+} {
+  return {
+    typeUrl: PUBKEY_SECP256K1,
+    value: gno.tm2.tx.tx.PubKeySecp256k1.encode({
+      key: new Uint8Array(33).fill(3),
+    }).finish(),
+  };
+}
 
 /** Realm the synthetic calls and deployments target */
 export const MOCK_REALM = "gno.land/r/demo/counter";
@@ -113,6 +136,51 @@ export function mockMessage(height: number, txIndex: number): {
           maxDeposit: "1000000ugnot",
         })).finish(),
       };
+    case MSG_ENABLE_PACKAGE:
+      return {
+        typeUrl,
+        value: gno.gno.vm.vm.MsgEnablePackage.encode(gno.gno.vm.vm.MsgEnablePackage.fromPartial({
+          approver: syntheticAddress(9),
+          pkgPath: MOCK_REALM + "_" + height,
+          pkgHash: "e48d1cf658c88282476d82a1ebb1b010c5a0b0c8c67078954a6fd7c4e86bfcf2",
+          pkgHeight: BigInt(height),
+        })).finish(),
+      };
+    case MSG_REJECT_PACKAGE:
+      return {
+        typeUrl,
+        value: gno.gno.vm.vm.MsgRejectPackage.encode(gno.gno.vm.vm.MsgRejectPackage.fromPartial({
+          sender: syntheticAddress(9),
+          pkgPath: MOCK_REALM + "_rejected_" + height,
+        })).finish(),
+      };
+    case MSG_CREATE_SESSION:
+      return {
+        typeUrl,
+        value: gno.gno.auth.auth.MsgCreateSession.encode(gno.gno.auth.auth.MsgCreateSession.fromPartial({
+          creator: syntheticAddress(1),
+          sessionKey: mockSessionKey(),
+          expiresAt: 1800000000n,
+          allowPaths: [MOCK_REALM],
+          spendLimit: "1000000ugnot",
+          spendPeriod: 86400n,
+        })).finish(),
+      };
+    case MSG_REVOKE_SESSION:
+      return {
+        typeUrl,
+        value: gno.gno.auth.auth.MsgRevokeSession.encode(gno.gno.auth.auth.MsgRevokeSession.fromPartial({
+          creator: syntheticAddress(1),
+          sessionKey: mockSessionKey(),
+        })).finish(),
+      };
+    case MSG_REVOKE_ALL_SESSIONS:
+      return {
+        typeUrl,
+        value: gno.gno.auth.auth.MsgRevokeAllSessions.encode(gno.gno.auth.auth.MsgRevokeAllSessions.fromPartial({
+          creator: syntheticAddress(1),
+        })).finish(),
+      };
     default:
       return {
         typeUrl: MSG_RUN,
@@ -135,21 +203,37 @@ export function mockMessage(height: number, txIndex: number): {
   }
 }
 
-/** Encodes a synthetic transaction with one message */
+/** Encodes a synthetic transaction with one message; the realm call is signed through the session key */
 export function mockTx(height: number, txIndex: number): Uint8Array {
+  const message = mockMessage(height, txIndex);
   return encodeTx(gno.tm2.tx.tx.Tx.fromPartial({
-    messages: [mockMessage(height, txIndex)],
+    messages: [message],
     fee: {
       gasWanted: 200000n,
       gasFee: "1000000ugnot",
     },
     signatures: [
       {
+        pubKey: mockSessionKey(),
         signature: new Uint8Array(64),
+        sessionAddr: message.typeUrl === MSG_CALL ? syntheticAddress(42) : ZERO_ADDRESS,
       },
     ],
     memo: "mock tx " + height + "-" + txIndex,
   }));
+}
+
+/** A bank transfer event as the bank module emits it for every explicit send */
+export function transferEvent(from: string, to: string, coins: string): Event {
+  return {
+    "@type": TRANSFER_EVENT,
+    type: "",
+    pkg_path: "",
+    attrs: [],
+    from,
+    to,
+    coins,
+  } as unknown as Event;
 }
 
 /** A std.Emit event as a realm would produce it */
@@ -321,6 +405,9 @@ export class MockTm2Client {
       const failed = this.failEvery !== undefined && this.failEvery > 0 && (i + 1) % this.failEvery === 0;
       const typeUrl = MOCK_MESSAGE_CYCLE[i % MOCK_MESSAGE_CYCLE.length];
       const events: Event[] = [];
+      if (!failed && typeUrl === MSG_SEND) {
+        events.push(transferEvent(syntheticAddress(1), syntheticAddress(2), "10ugnot"));
+      }
       if (!failed && typeUrl === MSG_CALL) {
         events.push(gnoEvent("Incremented", MOCK_REALM, {
           count: String(height),

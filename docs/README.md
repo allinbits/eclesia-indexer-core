@@ -63,7 +63,7 @@ gno.land / Tendermint2 adapter on tm2-rpc and gno-types.
 **Key Exports:**
 - `gno(options?)`, `GnoAdapter` - The adapter; `connect` and `decoders` options
 - `GnoEvents`, `GnoTx`, `GnoMsgEvent`, `MsgSend`, `MsgCall`, `MsgAddPackage`, `MsgRun`, `MsgEnablePackage`, `MsgRejectPackage`, `MsgCreateSession`, `MsgRevokeSession`, `MsgRevokeAllSessions` - Event and message types
-- `parseGenesisBalance`, `decodeTx`, `messageDecoders` - Helpers
+- `parseGenesisBalance`, `decodeTx`, `messageDecoders`, `messageSigners`, `pubKeyAddress`, `parseCoins`, `parseTransferEvent` - Helpers
 - `Mocks.createMockTm2Client` - Synthetic Tendermint2 node
 
 **Entry Point:** `packages/chain-gno/src/index.ts`
@@ -100,6 +100,8 @@ gno.land modules.
 - `MessagesModule` - `bank_sends`, `vm_calls`, `vm_add_packages`, `vm_runs`, `vm_enable_packages`, `vm_reject_packages`, `gno_events`
 - `PackagesModule` - `packages` (with approval `status`) and `package_files`, from deployments and genesis
 - `ValidatorsModule` - `validators` and `validator_power_history` (full mode)
+- `SessionsModule` - `auth_sessions`
+- `BankModule` - `bank_transfers`, `balances`, `balance_history` (full mode; balances read from the node per touched address)
 
 **Entry Point:** `packages/gno-modules/src/index.ts`
 

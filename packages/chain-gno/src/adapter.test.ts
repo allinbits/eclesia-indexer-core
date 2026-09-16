@@ -570,3 +570,28 @@ describe("own transport", () => {
     }
   });
 });
+
+describe("signers and sessions", () => {
+  it("lists the signers of every decoded message and who pays the fee", async () => {
+    const {
+      events,
+    } = await processed(node({
+      txPerBlock: 9,
+    }), 5);
+    const txs = events.filter(e => e.type === "tx").map(e => e.value as GnoTx);
+    // send, call, addpkg, run, enable, reject, create session, revoke session, revoke all
+    expect(txs.map(t => t.feePayer)).toEqual([1, 1, 3, 4, 9, 9, 1, 1, 1].map(i => syntheticAddress(i)));
+    expect(txs[0].signers).toEqual([syntheticAddress(1)]);
+    expect(events.map(e => e.type).filter(t => t.startsWith("/"))).toEqual([MSG_SEND, MSG_CALL, MSG_ADD_PACKAGE, MSG_RUN, "/vm.m_enable_pkg", "/vm.m_reject_pkg", "/auth.m_create_session", "/auth.m_revoke_session", "/auth.m_revoke_all_sessions"]);
+  });
+
+  it("reports the session address only for session-signed transactions", async () => {
+    const {
+      events,
+    } = await processed(node(), 5);
+    const txs = events.filter(e => e.type === "tx").map(e => e.value as GnoTx);
+    // Only the realm call is signed through the session key in the mock
+    expect(txs.map(t => t.sessionAddress)).toEqual([null, syntheticAddress(42), null, null]);
+    expect(txs[1].signatures[0].sessionAddr).toBe(syntheticAddress(42));
+  });
+});

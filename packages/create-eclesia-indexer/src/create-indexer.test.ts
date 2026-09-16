@@ -46,8 +46,8 @@ describe("module offers", () => {
   });
 
   it("offers validators to gno only in full mode", () => {
-    expect(modulesFor("gno", false, false, 500).map(m => m.value)).toEqual(["messages", "packages", "validators"]);
-    expect(modulesFor("gno", true, false, 1).map(m => m.value)).toEqual(["messages", "packages"]);
+    expect(modulesFor("gno", false, false, 500).map(m => m.value)).toEqual(["messages", "packages", "validators", "sessions", "bank"]);
+    expect(modulesFor("gno", true, false, 1).map(m => m.value)).toEqual(["messages", "packages", "sessions"]);
   });
 });
 
@@ -65,16 +65,17 @@ describe("generated wiring", () => {
   it("wires gno modules without a registry and drops validators in minimal mode", () => {
     const config = base({
       chain: "gno",
-      modules: ["Messages", "Packages", "Validators"],
+      modules: ["Messages", "Packages", "Validators", "Sessions", "Bank"],
     });
-    expect(generateModulesImport(config)).toBe("import {\n  Blocks,\n  MessagesModule,\n  PackagesModule,\n  ValidatorsModule\n} from \"@eclesia/gno-modules-pg\";\n");
-    expect(generateModulesInstantiation(config)).toBe("const blocksModule = new Blocks.FullBlocksModule();\nconst messagesModule = new MessagesModule();\nconst packagesModule = new PackagesModule();\nconst validatorsModule = new ValidatorsModule();");
-    expect(generateModulesArray(config)).toBe("[blocksModule, messagesModule, packagesModule, validatorsModule]");
+    expect(generateModulesImport(config)).toBe("import {\n  Blocks,\n  MessagesModule,\n  PackagesModule,\n  ValidatorsModule,\n  SessionsModule,\n  BankModule\n} from \"@eclesia/gno-modules-pg\";\n");
+    expect(generateModulesInstantiation(config)).toContain("const validatorsModule = new ValidatorsModule();\nconst sessionsModule = new SessionsModule();\n// Collectors");
+    expect(generateModulesInstantiation(config)).toContain("new BankModule({\n  trackAddresses: (process.env.BANK_TRACK_ADDRESSES");
+    expect(generateModulesArray(config)).toBe("[blocksModule, messagesModule, packagesModule, validatorsModule, sessionsModule, bankModule]");
 
     const minimal = base({
       chain: "gno",
       minimal: true,
-      modules: ["Messages", "Validators"],
+      modules: ["Messages", "Validators", "Bank"],
     });
     expect(generateModulesInstantiation(minimal)).toBe("const blocksModule = new Blocks.MinimalBlocksModule();\nconst messagesModule = new MessagesModule();");
     expect(generateModulesArray(minimal)).toBe("[blocksModule, messagesModule]");
