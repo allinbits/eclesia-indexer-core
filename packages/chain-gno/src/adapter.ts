@@ -6,15 +6,21 @@ import {
   AbciResult, ChainAdapter, FetchContext, FetchedBlock, GenesisContext, ProcessContext,
 } from "@eclesia/indexer-engine";
 import {
-  connectTm2, HttpClient, Tm2Client, toRfc3339WithNanoseconds, TxResult, Validator,
+  BlockResultsResponse, HttpClient, RpcClient, Tm2Client, toRfc3339WithNanoseconds, TxResult, Validator, WebsocketClient,
 } from "@gnolang/tm2-rpc";
 
+import {
+  decodeBlockResults, RawBlockResults,
+} from "./block-results.js";
 import {
   decodeTx, MessageDecoder, messageDecoders,
 } from "./messages.js";
 import {
   RateLimiter, throttledRpcClient,
 } from "./rate-limit.js";
+import {
+  BatchingHttpClient, BatchOptions,
+} from "./transport.js";
 import {
   GenesisTx, GnoBlock, GnoTx, GnoTxError,
 } from "./types.js";
@@ -36,6 +42,13 @@ export type GnoAdapterOptions = {
   requestsPerSecond?: number
   /** Extra HTTP headers for the RPC transport (API keys, a User-Agent); ignored with a custom `connect` */
   headers?: Record<string, string>
+  /**
+   * Pack concurrent JSON-RPC calls into one HTTP request each (Tendermint2 accepts batches).
+   * Defaults to on when `requestsPerSecond` is set, since that limit counts HTTP requests and
+   * batching multiplies what fits under it. Pass `false` to send one call per request, or an
+   * object to tune the batch size and dispatch interval. Ignored with a custom `connect`.
+   */
+  batching?: boolean | BatchOptions
 };
 
 /**
@@ -55,6 +68,17 @@ export class GnoAdapter implements ChainAdapter<Tm2Client, GnoBlock> {
 
   private readonly limiter: RateLimiter | null;
 
+  /** Transports of the clients this adapter built, for raw calls that bypass tm2-rpc's decoders */
+  private readonly transports = new WeakMap<Tm2Client, RpcClient>();
+
+  private requestId = 0;
+
+  /** Validator set last fetched, keyed by the header's validatorsHash; the set rarely changes */
+  private validatorCache: {
+    hash: string
+    validators: readonly Validator[]
+  } | null = null;
+
   constructor(options: GnoAdapterOptions = {
   }) {
     this.options = options;
@@ -65,19 +89,60 @@ export class GnoAdapter implements ChainAdapter<Tm2Client, GnoBlock> {
     this.limiter = options.requestsPerSecond ? new RateLimiter(options.requestsPerSecond) : null;
   }
 
-  connect(url: string): Promise<Tm2Client> {
+  /**
+   * Opens a client on a transport the adapter builds itself (HTTP, batching HTTP, or WebSocket
+   * for ws:// URLs), so it can also issue raw calls; a custom `connect` takes over entirely.
+   */
+  async connect(url: string): Promise<Tm2Client> {
     if (this.options.connect) {
       return this.options.connect(url);
     }
-    if (!this.limiter && !this.options.headers) {
-      return connectTm2(url);
+    const transport = this.buildTransport(url);
+    const client = await Tm2Client.create(transport);
+    this.transports.set(client, transport);
+    return client;
+  }
+
+  private buildTransport(url: string): RpcClient {
+    const headers = this.options.headers ?? {
+    };
+    const isHttp = url.startsWith("http://") || url.startsWith("https://");
+    const batching = this.options.batching ?? this.limiter !== null;
+    if (isHttp && batching) {
+      return new BatchingHttpClient(url, headers, typeof batching === "object"
+        ? batching
+        : {
+        }, this.limiter);
     }
-    const transport = new HttpClient({
-      url,
-      headers: this.options.headers ?? {
+    const base: RpcClient = isHttp
+      ? new HttpClient({
+        url,
+        headers,
+      })
+      : new WebsocketClient(url);
+    return this.limiter ? throttledRpcClient(base, this.limiter) : base;
+  }
+
+  /**
+   * Block results, decoded here rather than by tm2-rpc: its event decoder requires a realm
+   * `pkg_path` on every event and throws on the bank module's `/bank.TransferEvent`, which
+   * every plain transfer on gno.land emits. Clients from a custom `connect` (mocks) decode
+   * their own results.
+   */
+  private async blockResults(client: Tm2Client, height: number): Promise<BlockResultsResponse> {
+    const transport = this.transports.get(client);
+    if (!transport) {
+      return client.blockResults(height);
+    }
+    const reply = await transport.execute({
+      jsonrpc: "2.0",
+      id: "eclesia-" + (++this.requestId),
+      method: "block_results",
+      params: {
+        height: String(height),
       },
-    });
-    return Tm2Client.create(this.limiter ? throttledRpcClient(transport, this.limiter) : transport);
+    } as Parameters<RpcClient["execute"]>[0]);
+    return decodeBlockResults(reply.result as RawBlockResults);
   }
 
   disconnect(client: Tm2Client): void {
@@ -93,7 +158,10 @@ export class GnoAdapter implements ChainAdapter<Tm2Client, GnoBlock> {
   }
 
   async fetchBlock(client: Tm2Client, height: number, ctx: FetchContext): Promise<FetchedBlock<GnoBlock>> {
-    const [block, blockResults, validators] = await Promise.all([client.block(height), client.blockResults(height), ctx.minimal ? Promise.resolve(undefined) : this.fetchValidators(client, height, ctx)]);
+    const [block, blockResults] = await Promise.all([client.block(height), this.blockResults(client, height)]);
+    // The header commits to the validator set, so a block whose validatorsHash matches the last
+    // fetched set needs no validators call: full mode costs two RPC calls per block, not three
+    const validators = ctx.minimal ? undefined : await this.validatorsAt(client, height, block.block.header.validatorsHash, ctx);
     return {
       height: block.block.header.height,
       timestamp: toRfc3339WithNanoseconds(block.block.header.time),
@@ -105,7 +173,23 @@ export class GnoAdapter implements ChainAdapter<Tm2Client, GnoBlock> {
     };
   }
 
-  /** Validator set at a height. tm2-rpc does not decode end-block validator updates, so full mode asks per block. */
+  /** Validator set for a height, served from the cache when the header's validatorsHash matches */
+  private async validatorsAt(client: Tm2Client, height: number, validatorsHash: Uint8Array, ctx: Pick<FetchContext, "prometheus">): Promise<readonly Validator[]> {
+    const hash = Buffer.from(validatorsHash).toString("hex");
+    if (this.validatorCache && this.validatorCache.hash === hash && hash !== "") {
+      return this.validatorCache.validators;
+    }
+    const validators = await this.fetchValidators(client, height, ctx);
+    if (hash !== "") {
+      this.validatorCache = {
+        hash,
+        validators,
+      };
+    }
+    return validators;
+  }
+
+  /** Validator set at a height. tm2-rpc does not decode end-block validator updates, so full mode asks the node. */
   async fetchValidators(client: Tm2Client, height: number, ctx: Pick<FetchContext, "prometheus">): Promise<readonly Validator[]> {
     const endTimer = ctx.prometheus?.timeRpcCall("validators") ?? void 0;
     try {

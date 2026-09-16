@@ -55,3 +55,10 @@ Known upstream issue for gno consumers: `@gnolang/tm2-rpc` 1.0.0 decodes bech32 
 call with "limit: expected safe integer, got Infinity". This workspace pins
 `@scure/base@>=2.3.0` to 2.2.0 through a pnpm override; consumers need the same override
 (pnpm `overrides` or npm `overrides`) until tm2-rpc or cosmjs ships a fix.
+
+Two more mainnet findings handled in the gno adapter: `gno()` takes `requestsPerSecond` (paces
+HTTP requests) and `batching` (packs JSON-RPC calls into batch requests, on by default with a
+rate limit), because rpc.gno.land allows about a thousand requests per five minutes; and the
+adapter decodes `block_results` itself, since tm2-rpc's event decoder throws on the bank
+module's `/bank.TransferEvent`, which has no realm `pkg_path`. Full mode also caches the
+validator set by the header's `validatorsHash`, so it costs two calls per block, not three.

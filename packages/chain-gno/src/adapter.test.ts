@@ -418,3 +418,155 @@ describe("adapter contract", () => {
     run,
   }) => run());
 });
+
+describe("validator set cache", () => {
+  it("asks the node once while the header's validatorsHash is unchanged", async () => {
+    const mock = node();
+    const validators = vi.spyOn(mock, "validators");
+    const adapter = gno();
+    for (const height of [1, 2, 3]) {
+      const fetched = await adapter.fetchBlock(client(mock), height, {
+        log,
+        prometheus: null,
+        minimal: false,
+      });
+      expect(fetched.data.validators?.length).toBe(3);
+    }
+    expect(validators).toHaveBeenCalledTimes(1);
+
+    // A different hash means a different set: fetch again
+    const changed = node({
+      validatorCount: 5,
+    });
+    const original = changed.block.bind(changed);
+    changed.block = async (height: number) => {
+      const block = await original(height);
+      return {
+        ...block,
+        block: {
+          ...block.block,
+          header: {
+            ...block.block.header,
+            validatorsHash: new Uint8Array(32).fill(9),
+          },
+        },
+      } as typeof block;
+    };
+    const fetched = await adapter.fetchBlock(client(changed), 4, {
+      log,
+      prometheus: null,
+      minimal: false,
+    });
+    expect(fetched.data.validators?.length).toBe(5);
+  });
+});
+
+describe("own transport", () => {
+  /** A node answering over HTTP with block 786 of gnoland-1, whose transfer event has no realm fields */
+  const nodeFetch = () => vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as Array<{
+      id: string
+      method: string
+    }> | {
+      id: string
+      method: string
+    };
+    const requests = Array.isArray(body) ? body : [body];
+    const answer = (method: string) => {
+      switch (method) {
+        case "status":
+          return {
+            node_info: {
+              network: "gnoland-1",
+              version: "v1.0.0-rc.0",
+              moniker: "n",
+              listen_addr: "",
+              software: "gno",
+              channels: [],
+              other: {
+              },
+              version_set: [],
+            },
+            sync_info: {
+              latest_block_hash: "",
+              latest_app_hash: "",
+              latest_block_height: "786",
+              latest_block_time: "2026-09-12T16:58:00Z",
+              catching_up: false,
+            },
+            validator_info: {
+              address: "g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5",
+              pub_key: {
+                "@type": "/tm.PubKeyEd25519",
+                value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+              },
+              voting_power: "10",
+            },
+          };
+        case "block_results":
+          return {
+            height: "786",
+            results: {
+              deliver_tx: [
+                {
+                  ResponseBase: {
+                    Error: null,
+                    Data: "",
+                    Events: [
+                      {
+                        "@type": "/bank.TransferEvent",
+                        from: "g1from",
+                        to: "g1to",
+                        coins: "1000000ugnot",
+                      },
+                    ],
+                    Log: "",
+                    Info: "",
+                  },
+                  GasWanted: "2000000",
+                  GasUsed: "1237175",
+                },
+              ],
+              begin_block: null,
+              end_block: null,
+            },
+          };
+        default:
+          throw new Error("unexpected method " + method);
+      }
+    };
+    const replies = requests.map(r => ({
+      jsonrpc: "2.0",
+      id: r.id,
+      result: answer(r.method),
+    }));
+    return new Response(JSON.stringify(Array.isArray(body) ? replies : replies[0]), {
+      status: 200,
+    });
+  });
+
+  it("decodes block results itself so bank transfer events do not break the fetch", async () => {
+    const fetchFn = nodeFetch();
+    vi.stubGlobal("fetch", fetchFn);
+    try {
+      const adapter = gno({
+        requestsPerSecond: 1000,
+      });
+      const connected = await adapter.connect("https://rpc.example");
+      const results = await adapter["blockResults"](connected, 786);
+      expect(results.results.deliverTx[0].responseBase.events[0]).toMatchObject({
+        "@type": "/bank.TransferEvent",
+        pkg_path: "",
+        from: "g1from",
+        coins: "1000000ugnot",
+      });
+      // The call went through the batching transport, as a JSON-RPC array
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String((fetchFn.mock.calls[0][1] as RequestInit).body))[0].method).toBe("block_results");
+      adapter.disconnect(connected);
+    }
+    finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

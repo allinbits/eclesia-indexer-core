@@ -16,6 +16,9 @@ export * as Mocks from "./mocks/index.js";
 export {
   RateLimiter, throttledRpcClient,
 } from "./rate-limit.js";
+export {
+  BatchingHttpClient, type BatchOptions,
+} from "./transport.js";
 export type {
   GenesisBalance, GenesisMsg, GenesisMsgEvent, GenesisTx, GenesisTxMetadata, GnoBlock, Events as GnoEvents, GnoMsgEvent, GnoTx, GnoTxError, ParsedGenesisBalance,
 } from "./types.js";
