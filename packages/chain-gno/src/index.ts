@@ -6,12 +6,15 @@ export {
   decodeGnoTx, gno, GnoAdapter, type GnoAdapterOptions,
 } from "./adapter.js";
 export {
+  parseGenesisBalance,
+} from "./genesis.js";
+export {
   decodeTx, encodeTx, type MemFile, type MemPackage, type MessageDecoder, messageDecoders, MSG_ADD_PACKAGE, MSG_CALL, MSG_RUN, MSG_SEND,
   type MsgAddPackage, type MsgCall, type MsgRun, type MsgSend, type Tx, type TxFee, type TxSignature,
 } from "./messages.js";
 export * as Mocks from "./mocks/index.js";
 export type {
-  GenesisBalance, GenesisMsg, GenesisMsgEvent, GenesisTx, GenesisTxMetadata, GnoBlock, Events as GnoEvents, GnoMsgEvent, GnoTx, GnoTxError,
+  GenesisBalance, GenesisMsg, GenesisMsgEvent, GenesisTx, GenesisTxMetadata, GnoBlock, Events as GnoEvents, GnoMsgEvent, GnoTx, GnoTxError, ParsedGenesisBalance,
 } from "./types.js";
 
 /**

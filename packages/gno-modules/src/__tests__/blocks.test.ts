@@ -76,7 +76,7 @@ describe("FullBlocksModule", () => {
         size: expect.any(Number),
       },
     ]);
-    expect(JSON.parse(txs[2][12] as string)[0]["@type"]).toBe("/tm.storageDepositEvent");
+    expect(JSON.parse(txs[2][12] as string)[0]["@type"]).toBe("/tm.StorageDepositEvent");
 
     const failed = txs[3];
     expect(JSON.parse(failed[10] as string)).toEqual({

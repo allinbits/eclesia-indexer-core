@@ -81,7 +81,7 @@ CREATE TABLE gno_events
     tx_hash     TEXT,                                         -- Null for block-level events
     tx_index    INTEGER,
     event_index INTEGER     NOT NULL,                         -- Position within its phase / transaction
-    amino_type  TEXT        NOT NULL,                         -- @type, e.g. /tm.gnoEvent
+    amino_type  TEXT        NOT NULL,                         -- @type, e.g. /tm.Event
     type        TEXT        NOT NULL,                         -- Event type as emitted (e.g. "Transfer")
     pkg_path    TEXT        NOT NULL,                         -- Realm that emitted it
     attrs       JSONB       NOT NULL DEFAULT '[]'::JSONB,     -- [{key, value}] in emission order

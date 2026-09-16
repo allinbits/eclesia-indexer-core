@@ -57,5 +57,10 @@
     "typedoc": "^0.28.20",
     "vitest": "^4.1.11"
   },
-  "packageManager": "pnpm@10.33.0"
+  "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "overrides": {
+      "@scure/base@>=2.3.0": "2.2.0"
+    }
+  }
 }

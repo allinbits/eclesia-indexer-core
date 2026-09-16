@@ -21,11 +21,11 @@ import {
   encodeTx, MSG_ADD_PACKAGE, MSG_CALL, MSG_RUN, MSG_SEND,
 } from "../messages.js";
 
-/** Amino type of the events realms emit through std.Emit */
-export const GNO_EVENT_TYPE = "/tm.gnoEvent";
+/** Amino type of the events realms emit through chain.Emit (package `tm`, struct `Event`) */
+export const GNO_EVENT_TYPE = "/tm.Event";
 
-/** Amino type of the storage deposit event the VM emits when a package grows its state */
-export const STORAGE_DEPOSIT_EVENT_TYPE = "/tm.storageDepositEvent";
+/** Amino type of the storage deposit event the VM emits when a package grows its state; its `type` is empty */
+export const STORAGE_DEPOSIT_EVENT_TYPE = "/tm.StorageDepositEvent";
 
 /** Configuration for mock data generation */
 export interface MockTm2Config {
@@ -333,7 +333,10 @@ export class MockTm2Client {
           pkg_path: MOCK_REALM + "_" + height,
           attrs: [],
           bytes_delta: 1024,
-          fee_delta: "102400ugnot",
+          fee_delta: {
+            denom: "ugnot",
+            amount: 102400,
+          },
         } as unknown as Event);
       }
       deliverTx.push({

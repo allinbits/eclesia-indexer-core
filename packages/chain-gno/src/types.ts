@@ -47,14 +47,31 @@ export type GnoMsgEvent<T> = {
   tx: GnoTx
 };
 
-/** One entry of `app_state.balances` in a gno.land genesis file */
-export type GenesisBalance = {
+/**
+ * One entry of `app_state.balances` in a gno.land genesis file. Amino marshals a balance as
+ * the string `<address>=<coins>[;vesting=<coins>,<start>,<end>[;type=delayed]]`; older tools
+ * wrote objects. `parseGenesisBalance` accepts both.
+ */
+export type GenesisBalance = string | {
   address: string
   amount: string                     // Coins as "<amount><denom>[,<amount><denom>...]"
   vesting?: {
     original_vesting?: string
     start_time?: string | number
     end_time?: string | number
+    type?: string
+  } | null
+};
+
+/** A genesis balance in one shape, whichever form the file used */
+export type ParsedGenesisBalance = {
+  address: string
+  amount: string
+  vesting: {
+    originalVesting: string
+    startTime: number
+    endTime: number
+    delayed: boolean
   } | null
 };
 

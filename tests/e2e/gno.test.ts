@@ -9,7 +9,7 @@ import {
   PgIndexer,
 } from "@eclesia/basic-pg-indexer";
 import {
-  gno, Mocks,
+  gno, Mocks, parseGenesisBalance,
 } from "@eclesia/chain-gno";
 import {
   Blocks, MessagesModule, PackagesModule, ValidatorsModule,
@@ -59,10 +59,10 @@ describe.skipIf(!admin)("gno end-to-end", () => {
       chain_id: "e2e-gno",
       app_state: {
         balances: [
-          {
-            address: Mocks.syntheticAddress(1),
-            amount: "1000000000ugnot",
-          },
+          // Amino string form, as gnoland and gnodev write it
+          Mocks.syntheticAddress(1) + "=1000000000ugnot",
+          Mocks.syntheticAddress(3) + "=100ugnot;vesting=100ugnot,0,1800000000;type=delayed",
+          // Object form some tools write
           {
             address: Mocks.syntheticAddress(2),
             amount: "500ugnot",
@@ -155,16 +155,22 @@ describe.skipIf(!admin)("gno end-to-end", () => {
       exitOnFatal: false,
     }, [new Blocks.FullBlocksModule(), new MessagesModule(), new PackagesModule(), new ValidatorsModule()]);
     // The engine streams the balances only when something listens for them
-    let genesisBalances = 0;
+    const genesisBalances: ReturnType<typeof parseGenesisBalance>[] = [];
     indexer.indexer.on("genesis/array/app_state.balances", async (event) => {
-      genesisBalances += event.value.length;
+      genesisBalances.push(...event.value.map(parseGenesisBalance));
     });
 
     await indexer.setup();
     await indexer.run();
     await indexer.stop();
 
-    expect(genesisBalances).toBe(2);
+    expect(genesisBalances.map(b => b.amount)).toEqual(["1000000000ugnot", "100ugnot", "500ugnot"]);
+    expect(genesisBalances[1].vesting).toEqual({
+      originalVesting: "100ugnot",
+      startTime: 0,
+      endTime: 1800000000,
+      delayed: true,
+    });
 
     const db = new pg.Client({
       connectionString,
@@ -210,15 +216,15 @@ describe.skipIf(!admin)("gno end-to-end", () => {
       const events = await db.query("SELECT amino_type, count(*)::int AS n FROM gno_events GROUP BY amino_type ORDER BY amino_type");
       expect(events.rows).toEqual([
         {
-          amino_type: "/tm.gnoEvent",
+          amino_type: "/tm.Event",
           n: BLOCKS,
         },
         {
-          amino_type: "/tm.storageDepositEvent",
+          amino_type: "/tm.StorageDepositEvent",
           n: BLOCKS,
         },
       ]);
-      const event = await db.query("SELECT phase, tx_index, type, pkg_path, attrs->0->>'value' AS count FROM gno_events WHERE height = 42 AND amino_type = '/tm.gnoEvent'");
+      const event = await db.query("SELECT phase, tx_index, type, pkg_path, attrs->0->>'value' AS count FROM gno_events WHERE height = 42 AND amino_type = '/tm.Event'");
       expect(event.rows[0]).toEqual({
         phase: "tx",
         tx_index: 1,

@@ -65,7 +65,7 @@ describe("MessagesModule", () => {
     expect(phase).toBe("tx");
     expect(txHash).toMatch(/^[0-9A-F]{64}$/);
     expect(txIndex).toBe(1);
-    expect(aminoTypes).toEqual(["/tm.gnoEvent"]);
+    expect(aminoTypes).toEqual(["/tm.Event"]);
     expect(types).toEqual(["Incremented"]);
     expect(pkgPaths).toEqual([Mocks.MOCK_REALM]);
     expect(JSON.parse((attrs as string[])[0])).toEqual([
@@ -74,7 +74,7 @@ describe("MessagesModule", () => {
         value: "6",
       },
     ]);
-    expect(batches[1][5]).toEqual(["/tm.storageDepositEvent"]);
+    expect(batches[1][5]).toEqual(["/tm.StorageDepositEvent"]);
     expect(JSON.parse((batches[1][9] as string[])[0]).bytes_delta).toBe(1024);
   });
 

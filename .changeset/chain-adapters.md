@@ -48,3 +48,10 @@ messages, block-time averages), `MessagesModule` (bank sends, realm calls, deplo
 and every chain event with its realm in `gno_events`), `PackagesModule` (a registry of packages
 and realms with their sources, from transactions and from genesis) and `ValidatorsModule`
 (the validator set block by block with power history, full mode).
+
+Known upstream issue for gno consumers: `@gnolang/tm2-rpc` 1.0.0 decodes bech32 through
+`@cosmjs/encoding` 0.38/0.39, which pass an unbounded length to `@scure/base`; `@scure/base`
+2.3.0 and later reject it, so a fresh install fails on every `status()` and `validators()`
+call with "limit: expected safe integer, got Infinity". This workspace pins
+`@scure/base@>=2.3.0` to 2.2.0 through a pnpm override; consumers need the same override
+(pnpm `overrides` or npm `overrides`) until tm2-rpc or cosmjs ships a fix.

@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@scure/base@>=2.3.0': 2.2.0
+
 importers:
 
   .:
@@ -1293,8 +1296,8 @@ packages:
   '@scure/base@1.2.6':
     resolution: {integrity: sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg==}
 
-  '@scure/base@2.4.0':
-    resolution: {integrity: sha512-thZ1TuJwFwBblOhgsjDKvvGirBxNp+wSvY/DR6tJBJOTDhdAAcHJ8Vbr2eFnqaxeca4+t0i9KBf+uHYGWwZORg==}
+  '@scure/base@2.2.0':
+    resolution: {integrity: sha512-b8XEupJibegiXV+tDUseI8oLQc8ei3d/4Jkb2RpbHh3MfE054ov3uIz2dhFkB3FI8iwYkEh0gGCApkrYggkPNg==}
 
   '@scure/bip39@1.6.0':
     resolution: {integrity: sha512-+lF0BbLiJNwVlev4eKelw1WWLaiKXw7sSl8T6FvBlWkdX+94aGJ4o8XjUdlyhTCjd8c+B3KT3JfS8P0bLRNU6A==}
@@ -3232,7 +3235,7 @@ snapshots:
 
   '@cosmjs/encoding@0.38.1':
     dependencies:
-      '@scure/base': 2.4.0
+      '@scure/base': 2.2.0
       base64-js: 1.5.1
       readonly-date-esm: 2.0.0
 
@@ -3780,7 +3783,7 @@ snapshots:
 
   '@scure/base@1.2.6': {}
 
-  '@scure/base@2.4.0': {}
+  '@scure/base@2.2.0': {}
 
   '@scure/bip39@1.6.0':
     dependencies:
