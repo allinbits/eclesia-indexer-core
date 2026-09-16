@@ -1,39 +1,35 @@
 /* eslint-disable @stylistic/no-multi-spaces */
-import {
-  BlockResponse, BlockResultsResponse,
-} from "@cosmjs/tendermint-rpc";
-import {
-  BlockResultsResponse as BlockResultsResponse38, Event,
-} from "@cosmjs/tendermint-rpc/build/comet38/responses";
-import {
-  Validator,
-} from "cosmjs-types/cosmos/staking/v1beta1/staking";
-import {
-  TxBody,
-} from "cosmjs-types/cosmos/tx/v1beta1/tx";
-
-import {
+import type {
+  BlockOf, ChainAdapter, FetchedBlock,
+} from "../chain/index.js";
+import type {
   EclesiaIndexer,
-} from "../indexer";
-import {
+} from "../indexer/index.js";
+import type {
   CircularBuffer,
-} from "../promise-queue";
+} from "../promise-queue/index.js";
 
-/** Configuration interface for the Eclesia indexer */
-export type EclesiaIndexerConfig = {
+export type LogLevel = "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly";
+
+/**
+ * Configuration interface for the Eclesia indexer. `A` is the chain adapter the indexer runs on;
+ * it decides what an RPC client and a block are, and which events a block turns into.
+ */
+export type EclesiaIndexerConfig<A extends ChainAdapter = ChainAdapter> = {
+  chain: A                                                       // Chain adapter (e.g. cosmos() from @eclesia/chain-cosmos)
   startHeight?: number                                           // Block height to start indexing from
   endHeight?: number                                             // Block height to stop indexing at (optional)
   batchSize: number                                              // Number of blocks to process in parallel
   modules: string[]                                              // List of module names to enable
   getNextHeight: () => number | PromiseLike<number>             // Function to determine next block to process
-  logLevel: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly" // Logging verbosity level
-  rpcUrl: string                                                 // Tendermint RPC endpoint URL
+  logLevel: LogLevel                                             // Logging verbosity level
+  rpcUrl: string                                                 // RPC endpoint URL
   chainId?: string                                               // Refuse to index if the RPC reports a different network
   shouldProcessGenesis: () => Promise<boolean>                   // Whether to process genesis state
   genesisPath?: string                                           // Path to genesis file
-  usePolling?: boolean                                           // Use polling instead of WebSocket subscription
+  usePolling?: boolean                                           // Use polling instead of a block subscription
   pollingInterval?: number                                       // Interval between polls in milliseconds
-  minimal?: boolean                                              // Use minimal indexing mode (blocks only)
+  minimal?: boolean                                              // Use minimal indexing mode (lets the adapter skip expensive per-block data)
   enableHealthcheck?: boolean                                    // Enable health check HTTP server
   healthCheckPort?: number                                       // Port for health check HTTP server (default: 8888)
   enablePrometheus?: boolean                                     // Enable Prometheus metrics server
@@ -50,17 +46,8 @@ export type EclesiaIndexerConfig = {
   endTransaction: (status: boolean) => Promise<void>             // Function to end database transaction
 };
 
-/** @deprecated Misspelling kept for compatibility, use EclesiaIndexerConfig. Removed in 3.0. */
-export type EcleciaIndexerConfig = EclesiaIndexerConfig;
-
-/** Queue for full indexing mode with validator data */
-export type FullBlockQueue = CircularBuffer<[BlockResponse, BlockResultsResponse, Uint8Array]>;
-
-/** Queue for minimal indexing mode without validator data */
-export type MinimalBlockQueue = CircularBuffer<[BlockResponse, BlockResultsResponse]>;
-
-/** Union type for block queues */
-export type BlockQueue = FullBlockQueue | MinimalBlockQueue;
+/** Queue of fetched blocks awaiting processing */
+export type BlockQueue<A extends ChainAdapter = ChainAdapter> = CircularBuffer<FetchedBlock<BlockOf<A>> | undefined>;
 
 /** Utility type to add height, timestamp, and UUID to event types */
 export type WithHeightAndUUID<T> = {
@@ -86,6 +73,11 @@ export type UUIDEvent = {
   error?: string
   status: boolean
 };
+
+/**
+ * Events the engine itself emits, for every chain. Chain adapters add the block-level events
+ * (blocks, transactions, messages) and modules add their own, all through EventMap merging.
+ */
 export type Events = {
   log: LogEvent
   uuid: UUIDEvent
@@ -94,31 +86,6 @@ export type Events = {
     message: string
     retryCount?: number
     height?: number   // Set when one block failed repeatedly
-  }
-  begin_block: {
-    value: {
-      events: BlockResultsResponse["beginBlockEvents"] | BlockResultsResponse38["finalizeBlockEvents"]
-      validators: Validator[] | undefined
-    }
-  }
-
-  block: {
-    value: {
-      block: BlockResponse
-      block_results: BlockResultsResponse | BlockResultsResponse38
-    }
-  }
-  end_block: {
-    value: BlockResultsResponse["endBlockEvents"] | BlockResultsResponse38["finalizeBlockEvents"]
-  }
-  tx_events: {
-    value: BlockResultsResponse["results"] | BlockResultsResponse38["results"]
-  }
-  tx_memo: {
-    value: {
-      txHash: string
-      txBody: TxBody
-    }
   }
   _unhandled: {
     type: string
@@ -134,14 +101,10 @@ export type Events = {
     value: null
   }
 };
-export type TxResult<T> = {
-  tx: T
-  events: Event[]
-};
 
 /** Interface that all indexing modules must implement */
-export interface IndexingModule {
-  indexer: EclesiaIndexer                    // Reference to the main indexer instance
+export interface IndexingModule<A extends ChainAdapter = ChainAdapter> {
+  indexer: EclesiaIndexer<A>                 // Reference to the main indexer instance
   name: string                               // Unique module name
   depends: string[]                          // Array of module names this module depends on
   provides: string[]                         // Array of capabilities this module provides
@@ -151,7 +114,7 @@ export interface IndexingModule {
 }
 
 /**
- * Global event map. Modules add their own events through declaration merging:
+ * Global event map. Chain adapters and modules add their own events through declaration merging:
  *
  *   declare global { interface EventMap extends MyModule.Events {} }
  *

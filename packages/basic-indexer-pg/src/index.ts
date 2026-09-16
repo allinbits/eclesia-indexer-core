@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import {
-  ConfigurationError, DB_CLIENT_RECYCLE_COUNT, DEFAULT_START_HEIGHT, EclesiaIndexer, Types, Utils,
+  ChainAdapter, ConfigurationError, DB_CLIENT_RECYCLE_COUNT, DEFAULT_START_HEIGHT, EclesiaIndexer, Types, Utils,
 } from "@eclesia/indexer-engine";
 import {
   Client,
@@ -63,8 +63,8 @@ function validatePostgresConnectionString(connectionString: string): void {
   }
 }
 
-/** Configuration options for the PostgreSQL indexer */
-export type PgIndexerConfig = Omit<Types.EclesiaIndexerConfig, "init" | "getNextHeight" | "beginTransaction" | "endTransaction" | "shouldProcessGenesis"> & {
+/** Configuration options for the PostgreSQL indexer. `A` is the chain adapter passed as `chain`. */
+export type PgIndexerConfig<A extends ChainAdapter = ChainAdapter> = Omit<Types.EclesiaIndexerConfig<A>, "init" | "getNextHeight" | "beginTransaction" | "endTransaction" | "shouldProcessGenesis"> & {
   processGenesis?: boolean                   // Whether to process genesis state
   dbConnectionString: string                 // PostgreSQL connection string
   synchronousCommit?: boolean                // Keep PostgreSQL's synchronous_commit on (default: false, commits are acknowledged before they reach disk)
@@ -72,25 +72,26 @@ export type PgIndexerConfig = Omit<Types.EclesiaIndexerConfig, "init" | "getNext
 };
 
 /**
- * PostgreSQL-based blockchain indexer that orchestrates data collection and storage
- * Manages database connections, transactions, and indexing modules
+ * PostgreSQL-based blockchain indexer that orchestrates data collection and storage.
+ * Manages database connections, transactions, and indexing modules. Generic over the chain
+ * adapter so modules written for one chain cannot be installed on an indexer for another.
  */
-export class PgIndexer {
+export class PgIndexer<A extends ChainAdapter = ChainAdapter> {
   /** PostgreSQL client instance */
   private db!: Client;
 
   /** Registry of active indexing modules */
-  public modules: Record<string, Types.IndexingModule> = {
+  public modules: Record<string, Types.IndexingModule<A>> = {
   };
 
   /** Database connection status flag */
   private instanceConnected: boolean = false;
 
   /** Indexer configuration */
-  public config: PgIndexerConfig;
+  public config: PgIndexerConfig<A>;
 
   /** Core indexer engine instance */
-  public indexer: EclesiaIndexer;
+  public indexer: EclesiaIndexer<A>;
 
   /** Counter for database client recycling to prevent connection issues */
   private clientReuse: number = 0;
@@ -110,8 +111,8 @@ export class PgIndexer {
    * @param modules - Array of indexing modules to install
    * @returns Configured PgIndexer instance
    */
-  static withModules(config: PgIndexerConfig, modules: Types.IndexingModule[]) {
-    const pgIndexer = new PgIndexer(config);
+  static withModules<A extends ChainAdapter>(config: PgIndexerConfig<A>, modules: Types.IndexingModule<A>[]) {
+    const pgIndexer = new PgIndexer<A>(config);
     pgIndexer.addModules(modules);
     return pgIndexer;
   }
@@ -121,7 +122,7 @@ export class PgIndexer {
    * @param config - Indexer configuration
    * @param modules - Optional array of indexing modules to install immediately
    */
-  constructor(config: PgIndexerConfig, modules: Types.IndexingModule[] = []) {
+  constructor(config: PgIndexerConfig<A>, modules: Types.IndexingModule<A>[] = []) {
     // Validate database connection string
     validatePostgresConnectionString(config.dbConnectionString);
 
@@ -131,7 +132,7 @@ export class PgIndexer {
     this.db = this.createClient();
 
     // Initialize core indexer engine with database callbacks
-    this.indexer = new EclesiaIndexer({
+    this.indexer = new EclesiaIndexer<A>({
       ...config,
       getNextHeight: this.getNextHeight.bind(this),
       beginTransaction: this.beginTransaction.bind(this),
@@ -168,7 +169,7 @@ export class PgIndexer {
    * Adds indexing modules to the running indexer
    * @param modules - Array of indexing modules to add
    */
-  public addModules(modules: Types.IndexingModule[]) {
+  public addModules(modules: Types.IndexingModule<A>[]) {
     if (this.setupDone) {
       throw new ConfigurationError("Modules must be added before setup() runs, or their schema is never set up", {
         modules: modules.map(m => m.name),

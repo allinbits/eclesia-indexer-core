@@ -19,8 +19,8 @@ test("handled counts follow on() and off() of the registered handlers", () => {
   expect(emitter.handled.get("log")).toBe(1);
   emitter.on("log", second);
   expect(emitter.handled.get("log")).toBe(2);
-  emitter.on("tx_memo", () => {});
-  expect(emitter.handled.get("tx_memo")).toBe(1);
+  emitter.on("periodic/small", () => {});
+  expect(emitter.handled.get("periodic/small")).toBe(1);
 
   // A function that was never registered must not change the count
   emitter.off("log", () => {});

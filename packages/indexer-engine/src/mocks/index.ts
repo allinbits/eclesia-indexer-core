@@ -1,8 +1,5 @@
 /**
- * Mock implementations for testing and benchmarking
- * Provides RPC client and database mocks to isolate engine performance
+ * Mock implementations for testing and benchmarking the engine without a network. Chain-specific
+ * mocks (a synthetic CometBFT node, for example) live in the chain adapter packages.
  */
-
-export {
-  createMockRpcClient, mockModuleAccounts, MockRpcClient, type MockRpcConfig, syntheticAddress,
-} from "./rpc-client.js";
+export * from "./synthetic-chain.js";

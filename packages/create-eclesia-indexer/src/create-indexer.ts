@@ -412,7 +412,7 @@ function generateModulesImport(config: ProjectConfig): string {
     imports.push("  StakingModule");
   }
 
-  return `import {\n${imports.join(",")}\n} from "@eclesia/core-modules-pg";\n`;
+  return `import {\n${imports.join(",")}\n} from "@eclesia/cosmos-modules-pg";\n`;
 }
 
 function generateModulesInstantiation(config: ProjectConfig): string {

@@ -1,7 +1,7 @@
 {
   "name": "@eclesia/eclesia-indexer-core",
   "version": "1.4.0",
-  "description": "Modular indexing framework for Cosmos SDK chains: engine, PostgreSQL storage, core modules and project scaffolder",
+  "description": "Modular, chain-agnostic indexing framework: engine, chain adapters, PostgreSQL storage, indexing modules and project scaffolder",
   "scripts": {
     "build": "pnpm recursive run --sort build",
     "lint": "pnpm recursive run --sort lint",
@@ -22,7 +22,8 @@
   "lint-staged": {
     "packages/indexer-engine/**/*.ts": "pnpm --filter @eclesia/indexer-engine exec eslint --fix",
     "packages/basic-indexer-pg/**/*.ts": "pnpm --filter @eclesia/basic-pg-indexer exec eslint --fix",
-    "packages/core-modules/**/*.ts": "pnpm --filter @eclesia/core-modules-pg exec eslint --fix",
+    "packages/chain-cosmos/**/*.ts": "pnpm --filter @eclesia/chain-cosmos exec eslint --fix",
+    "packages/cosmos-modules/**/*.ts": "pnpm --filter @eclesia/cosmos-modules-pg exec eslint --fix",
     "packages/create-eclesia-indexer/src/**/*.ts": "pnpm --filter create-eclesia-indexer exec eslint --fix"
   },
   "keywords": [],
@@ -41,7 +42,8 @@
     "@changesets/changelog-github": "^1.0.1",
     "@changesets/cli": "^2.31.1",
     "@eclesia/basic-pg-indexer": "workspace:*",
-    "@eclesia/core-modules-pg": "workspace:*",
+    "@eclesia/chain-cosmos": "workspace:*",
+    "@eclesia/cosmos-modules-pg": "workspace:*",
     "@eclesia/indexer-engine": "workspace:*",
     "@types/node": "^24.13.3",
     "@types/pg": "^8.15.6",
