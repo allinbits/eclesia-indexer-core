@@ -25,6 +25,7 @@
     "packages/chain-cosmos/**/*.ts": "pnpm --filter @eclesia/chain-cosmos exec eslint --fix",
     "packages/chain-gno/**/*.ts": "pnpm --filter @eclesia/chain-gno exec eslint --fix",
     "packages/cosmos-modules/**/*.ts": "pnpm --filter @eclesia/cosmos-modules-pg exec eslint --fix",
+    "packages/gno-modules/**/*.ts": "pnpm --filter @eclesia/gno-modules-pg exec eslint --fix",
     "packages/create-eclesia-indexer/src/**/*.ts": "pnpm --filter create-eclesia-indexer exec eslint --fix"
   },
   "keywords": [],
@@ -46,6 +47,7 @@
     "@eclesia/chain-cosmos": "workspace:*",
     "@eclesia/chain-gno": "workspace:*",
     "@eclesia/cosmos-modules-pg": "workspace:*",
+    "@eclesia/gno-modules-pg": "workspace:*",
     "@eclesia/indexer-engine": "workspace:*",
     "@types/node": "^24.13.3",
     "@types/pg": "^8.15.6",

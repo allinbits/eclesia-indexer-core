@@ -4,7 +4,8 @@
     "packages/chain-cosmos/src/index.ts",
     "packages/chain-gno/src/index.ts",
     "packages/basic-indexer-pg/src/index.ts",
-    "packages/cosmos-modules/src/index.ts"
+    "packages/cosmos-modules/src/index.ts",
+    "packages/gno-modules/src/index.ts"
   ],
   "out": "docs/api",
   "name": "Eclesia Indexer Core API",

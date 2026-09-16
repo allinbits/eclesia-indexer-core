@@ -3,6 +3,7 @@
 "@eclesia/basic-pg-indexer": major
 "@eclesia/chain-cosmos": major
 "@eclesia/chain-gno": major
+"@eclesia/gno-modules-pg": major
 "@eclesia/cosmos-modules-pg": major
 "@eclesia/core-modules-pg": major
 "create-eclesia-indexer": major
@@ -40,3 +41,10 @@ New in 4.0.0: `@eclesia/chain-gno`, a chain adapter for gno.land and other Tende
 `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`) and `end_block`, imports genesis transactions as
 `gentx<@type>` events, and ships a mock Tendermint2 node. The engine's `Mocks` namespace gains
 `adapterContractCases()`, behavioural checks every chain adapter must pass.
+
+New in 4.0.0: `@eclesia/gno-modules-pg`, PostgreSQL modules for gno.land on the gno adapter:
+`Blocks.FullBlocksModule` / `Blocks.MinimalBlocksModule` (blocks, transactions with decoded
+messages, block-time averages), `MessagesModule` (bank sends, realm calls, deployments, runs,
+and every chain event with its realm in `gno_events`), `PackagesModule` (a registry of packages
+and realms with their sources, from transactions and from genesis) and `ValidatorsModule`
+(the validator set block by block with power history, full mode).
