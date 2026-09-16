@@ -143,21 +143,7 @@ export async function createIndexer(initialProjectName?: string): Promise<void> 
   }
   const config = await gatherProjectInfo(initialProjectName);
   const targetDir = resolve(process.cwd(), config.projectName);
-
-  console.log(colors.blue("📁 Creating project directory..."));
-  ensureDirSync(targetDir);
-
-  console.log(colors.blue("📋 Copying files..."));
-  await copyTemplateFiles(config, targetDir);
-
-  console.log(colors.blue("🔧 Processing template variables..."));
-  await processTemplates(config, targetDir);
-
-  console.log(colors.blue("📦 Installing dependencies..."));
-  await installDependencies(config, targetDir);
-
-  console.log(colors.blue("📦 Building..."));
-  await buildProject(config, targetDir);
+  await scaffold(config, targetDir);
 
   console.log();
   console.log(colors.green("🎉 Your indexer is ready!"));
@@ -175,6 +161,42 @@ export async function createIndexer(initialProjectName?: string): Promise<void> 
   console.log();
   console.log("Happy indexing!");
   console.log();
+}
+
+export type ScaffoldOptions = {
+  install?: boolean // Run the package manager's install in the project (default: true)
+  build?: boolean // Run the project's build after installing (default: true)
+};
+
+/**
+ * Generates a project from a complete configuration, without prompting: creates the directory,
+ * copies the shared and chain-specific templates, fills in the placeholders, and by default
+ * installs dependencies and builds. The interactive CLI gathers the configuration and calls
+ * this; scripts and tests can call it directly.
+ * @param config - Answers the CLI would have collected
+ * @param targetDir - Directory to create the project in
+ * @param options - Skip the install or build steps
+ */
+export async function scaffold(config: ProjectConfig, targetDir: string, options: ScaffoldOptions = {
+}): Promise<void> {
+  console.log(colors.blue("📁 Creating project directory..."));
+  ensureDirSync(targetDir);
+
+  console.log(colors.blue("📋 Copying files..."));
+  await copyTemplateFiles(config, targetDir);
+
+  console.log(colors.blue("🔧 Processing template variables..."));
+  await processTemplates(config, targetDir);
+
+  if (options.install !== false) {
+    console.log(colors.blue("📦 Installing dependencies..."));
+    await installDependencies(config, targetDir);
+  }
+
+  if (options.install !== false && options.build !== false) {
+    console.log(colors.blue("📦 Building..."));
+    await buildProject(config, targetDir);
+  }
 }
 
 async function gatherProjectInfo(initialProjectName?: string): Promise<ProjectConfig> {

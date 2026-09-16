@@ -110,3 +110,55 @@ describe("templates", () => {
     }
   });
 });
+
+describe("scaffold", () => {
+  it("generates a gno project from a configuration without prompting", async () => {
+    const os = await import("node:os");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "eclesia-scaffold-"));
+    const target = path.join(dir, "gno-project");
+    const {
+      scaffold,
+    } = await import("./create-indexer.js");
+    await scaffold(base({
+      projectName: "gno-project",
+      chain: "gno",
+      chainName: "gno.land",
+      rpcEndpoint: "http://127.0.0.1:26657",
+      chainPrefix: "g",
+      modules: ["Messages", "Packages", "Validators"],
+      processGenesis: false,
+    }), target, {
+      install: false,
+      build: false,
+    });
+    try {
+      const entry = fs.readFileSync(path.join(target, "src", "index.ts"), "utf-8");
+      expect(entry).toContain("chain: gno()");
+      expect(entry).toContain("new ValidatorsModule()");
+      expect(entry).not.toContain("{{");
+      const manifest = JSON.parse(fs.readFileSync(path.join(target, "package.json"), "utf-8")) as {
+        name: string
+        dependencies: Record<string, string>
+        keywords: string[]
+      };
+      expect(manifest.name).toBe("gno-project");
+      expect(manifest.dependencies["@eclesia/gno-modules-pg"]).toBeDefined();
+      expect(manifest.dependencies["@cosmjs/stargate"]).toBeUndefined();
+      expect(manifest.keywords).toContain("gno");
+      const env = fs.readFileSync(path.join(target, ".env"), "utf-8");
+      expect(env).toContain("RPC_ENDPOINT=http://127.0.0.1:26657");
+      expect(env).toContain("PROCESS_GENESIS=false");
+      // Without genesis processing the compose file must not mount a genesis file
+      expect(fs.readFileSync(path.join(target, "docker-compose.yml"), "utf-8")).not.toContain("genesis.json");
+      for (const file of [".gitignore", "Dockerfile", "tsconfig.json", "README.md", "eslint.config.mjs", "pnpm-workspace.yaml"]) {
+        expect(fs.existsSync(path.join(target, file))).toBe(true);
+      }
+    }
+    finally {
+      fs.rmSync(dir, {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+});

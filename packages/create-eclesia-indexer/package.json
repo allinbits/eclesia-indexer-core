@@ -73,7 +73,17 @@
         "default": "./dist/index.cjs"
       }
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./scaffold": {
+      "import": {
+        "types": "./dist/scaffold.d.mts",
+        "default": "./dist/scaffold.mjs"
+      },
+      "require": {
+        "types": "./dist/scaffold.d.cts",
+        "default": "./dist/scaffold.cjs"
+      }
+    }
   },
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
