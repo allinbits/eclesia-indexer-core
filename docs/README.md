@@ -62,7 +62,7 @@ gno.land / Tendermint2 adapter on tm2-rpc and gno-types.
 
 **Key Exports:**
 - `gno(options?)`, `GnoAdapter` - The adapter; `connect` and `decoders` options
-- `GnoEvents`, `GnoTx`, `GnoMsgEvent`, `MsgSend`, `MsgCall`, `MsgAddPackage`, `MsgRun`, `MsgEnablePackage`, `MsgRejectPackage` - Event and message types
+- `GnoEvents`, `GnoTx`, `GnoMsgEvent`, `MsgSend`, `MsgCall`, `MsgAddPackage`, `MsgRun`, `MsgEnablePackage`, `MsgRejectPackage`, `MsgCreateSession`, `MsgRevokeSession`, `MsgRevokeAllSessions` - Event and message types
 - `parseGenesisBalance`, `decodeTx`, `messageDecoders` - Helpers
 - `Mocks.createMockTm2Client` - Synthetic Tendermint2 node
 
@@ -238,7 +238,7 @@ The indexer uses an event-driven architecture. Modules can listen to events:
 Block-level events are declared by the chain adapter:
 
 - Cosmos: `block`, `begin_block`, `end_block`, `tx_events`, `tx_memo`, and `/<type.url>` per message
-- gno: `block`, `begin_block`, `end_block`, `tx`, and `/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`, `/vm.m_enable_pkg`, `/vm.m_reject_pkg` per message
+- gno: `block`, `begin_block`, `end_block`, `tx`, and `/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`, `/vm.m_enable_pkg`, `/vm.m_reject_pkg`, `/auth.m_create_session`, `/auth.m_revoke_session`, `/auth.m_revoke_all_sessions` per message
 
 Engine events, for every chain:
 

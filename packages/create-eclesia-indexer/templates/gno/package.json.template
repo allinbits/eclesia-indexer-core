@@ -34,7 +34,7 @@
     "@eclesia/gno-modules-pg": "^4.0.0",
     "@eclesia/indexer-engine": "^4.0.0",
     "dotenv": "^17.4.2",
-    "@gnolang/gno-types": "^1.0.8",
+    "@gnolang/gno-types": "^1.1.0",
     "@gnolang/tm2-rpc": "^1.0.0",
     "pg": "^8.16.3"
   },

@@ -47,8 +47,9 @@
     "access": "public"
   },
   "dependencies": {
+    "@bufbuild/protobuf": "^2.9.0",
     "@eclesia/indexer-engine": "workspace:^",
-    "@gnolang/gno-types": "^1.0.8",
+    "@gnolang/gno-types": "^1.1.0",
     "@gnolang/tm2-rpc": "^1.0.0"
   },
   "exports": {

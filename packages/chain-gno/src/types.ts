@@ -4,7 +4,7 @@ import type {
 } from "@gnolang/tm2-rpc";
 
 import type {
-  MsgAddPackage, MsgCall, MsgEnablePackage, MsgRejectPackage, MsgRun, MsgSend, Tx, TxFee, TxSignature,
+  MsgAddPackage, MsgCall, MsgCreateSession, MsgEnablePackage, MsgRejectPackage, MsgRevokeAllSessions, MsgRevokeSession, MsgRun, MsgSend, Tx, TxFee, TxSignature,
 } from "./messages.js";
 
 /** What the gno adapter fetches for one height */
@@ -155,6 +155,15 @@ export type Events = {
   }
   "/vm.m_reject_pkg": {
     value: GnoMsgEvent<MsgRejectPackage>
+  }
+  "/auth.m_create_session": {
+    value: GnoMsgEvent<MsgCreateSession>
+  }
+  "/auth.m_revoke_session": {
+    value: GnoMsgEvent<MsgRevokeSession>
+  }
+  "/auth.m_revoke_all_sessions": {
+    value: GnoMsgEvent<MsgRevokeAllSessions>
   }
   end_block: {
     value: readonly Event[]

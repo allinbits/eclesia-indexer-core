@@ -94,7 +94,7 @@ Adapters are passed to the indexer as `chain: cosmos()` or `chain: gno()`, and `
 Eclesia processes blockchain data by iterating through blocks and emitting events for different types of data. The event names are declared by the chain adapter:
 
 - **Cosmos SDK**: `block`, `begin_block`, `tx_events`, `tx_memo`, one event per message type URL (for example `/cosmos.bank.v1beta1.MsgSend`), `end_block`
-- **gno.land**: `block`, `begin_block`, `tx`, `/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`, `/vm.m_enable_pkg`, `/vm.m_reject_pkg`, `end_block`
+- **gno.land**: `block`, `begin_block`, `tx`, `/bank.MsgSend`, `/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`, `/vm.m_enable_pkg`, `/vm.m_reject_pkg`, `/auth.m_create_session`, `/auth.m_revoke_session`, `/auth.m_revoke_all_sessions`, `end_block`
 - **Engine**: `periodic/small|medium|large`, `genesis/array/<path>`, `genesis/value/<path>`, `fatal-error`
 - **Custom Events**: Modules add their own through the global `EventMap`
 

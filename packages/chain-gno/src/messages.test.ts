@@ -1,9 +1,12 @@
 import {
+  gno,
+} from "@gnolang/gno-types";
+import {
   describe, expect, it,
 } from "vitest";
 
 import {
-  messageDecoders, MSG_ENABLE_PACKAGE, MSG_REJECT_PACKAGE, MsgEnablePackage, MsgRejectPackage,
+  messageDecoders, MSG_CREATE_SESSION, MSG_ENABLE_PACKAGE, MSG_REJECT_PACKAGE, MSG_REVOKE_ALL_SESSIONS, MsgCreateSession, MsgEnablePackage, MsgRejectPackage, MsgRevokeAllSessions,
 } from "./messages.js";
 
 /** Encodes flat string / varint fields the way amino binary does, for messages without an encoder */
@@ -43,8 +46,28 @@ describe("approval message decoders", () => {
       approver: "g1yaaa6rcp4ew5yjzdj4yms596wx2dtrj3a86704",
       pkgPath: "gno.land/r/moul/x/daily/cliffvestingdemo/v0",
       pkgHash: "e48d1cf658c88282476d82a1ebb1b010c5a0b0c8c67078954a6fd7c4e86bfcf2",
-      pkgHeight: 51996n,
+      // Amino writes int64 as a zigzag varint: 51996 on the wire is height 25998
+      pkgHeight: 25998n,
     });
+  });
+
+  it("decodes the session messages the auth module added", () => {
+    const create = gno.gno.auth.auth.MsgCreateSession.encode(gno.gno.auth.auth.MsgCreateSession.fromPartial({
+      creator: "g1master",
+      expiresAt: 1800000000n,
+      allowPaths: ["gno.land/r/demo/boards"],
+      spendLimit: "1000000ugnot",
+      spendPeriod: 86400n,
+    })).finish();
+    const decoded = messageDecoders[MSG_CREATE_SESSION].decode(create) as MsgCreateSession;
+    expect(decoded.creator).toBe("g1master");
+    expect(decoded.expiresAt).toBe(1800000000n);
+    expect(decoded.allowPaths).toEqual(["gno.land/r/demo/boards"]);
+    expect(decoded.spendLimit).toBe("1000000ugnot");
+    const revokeAll = gno.gno.auth.auth.MsgRevokeAllSessions.encode({
+      creator: "g1master",
+    }).finish();
+    expect((messageDecoders[MSG_REVOKE_ALL_SESSIONS].decode(revokeAll) as MsgRevokeAllSessions).creator).toBe("g1master");
   });
 
   it("tolerates an enable without the appended hash and height fields", () => {

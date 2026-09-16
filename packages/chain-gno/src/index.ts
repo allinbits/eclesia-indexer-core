@@ -3,14 +3,8 @@ import type {
 } from "./types.js";
 
 export {
-  decodeGnoTx, gno, GnoAdapter, type GnoAdapterOptions,
-} from "./adapter.js";
-export {
-  parseGenesisBalance,
-} from "./genesis.js";
-export {
-  decodeTx, encodeTx, type MemFile, type MemPackage, type MessageDecoder, messageDecoders, MSG_ADD_PACKAGE, MSG_CALL, MSG_ENABLE_PACKAGE, MSG_REJECT_PACKAGE, MSG_RUN, MSG_SEND,
-  type MsgAddPackage, type MsgCall, type MsgEnablePackage, MsgEnablePackageDecoder, type MsgRejectPackage, MsgRejectPackageDecoder, type MsgRun, type MsgSend, type Tx, type TxFee, type TxSignature,
+  decodeTx, encodeTx, type MemFile, type MemPackage, type MessageDecoder, messageDecoders, MSG_ADD_PACKAGE, MSG_CALL, MSG_CREATE_SESSION, MSG_ENABLE_PACKAGE, MSG_REJECT_PACKAGE, MSG_REVOKE_ALL_SESSIONS, MSG_REVOKE_SESSION, MSG_RUN, MSG_SEND,
+  type MsgAddPackage, type MsgCall, type MsgCreateSession, type MsgEnablePackage, type MsgRejectPackage, type MsgRevokeAllSessions, type MsgRevokeSession, type MsgRun, type MsgSend, type Tx, type TxFee, type TxSignature,
 } from "./messages.js";
 export * as Mocks from "./mocks/index.js";
 export {

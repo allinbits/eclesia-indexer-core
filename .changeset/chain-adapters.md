@@ -64,8 +64,9 @@ module's `/bank.TransferEvent`, which has no realm `pkg_path`. Full mode also ca
 validator set by the header's `validatorsHash`, so it costs two calls per block, not three.
 
 gno.land's package approval flow (`code_submission_policy: inert`) is covered: the adapter
-decodes `/vm.m_enable_pkg` and `/vm.m_reject_pkg`, which gno-types 1.0.8 does not know, with
-its own wire reader; the messages module gets `vm_enable_packages` and `vm_reject_packages`;
+decodes `/vm.m_enable_pkg` and `/vm.m_reject_pkg`, and the auth module's session messages
+(`/auth.m_create_session`, `/auth.m_revoke_session`, `/auth.m_revoke_all_sessions`), through
+`@gnolang/gno-types` 1.1.0; the messages module gets `vm_enable_packages` and `vm_reject_packages`;
 the packages module gets the approval columns and a generated `status` (`submitted`,
 `enabled`, `rejected`). Unknown message types are now warned about once per type instead of
 logged at debug level per transaction.

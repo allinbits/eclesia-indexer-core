@@ -151,12 +151,15 @@ importers:
 
   packages/chain-gno:
     dependencies:
+      '@bufbuild/protobuf':
+        specifier: ^2.9.0
+        version: 2.15.0
       '@eclesia/indexer-engine':
         specifier: workspace:^
         version: link:../indexer-engine
       '@gnolang/gno-types':
-        specifier: ^1.0.8
-        version: 1.0.8(@bufbuild/protobuf@2.15.0)
+        specifier: ^1.1.0
+        version: 1.1.0(@bufbuild/protobuf@2.15.0)
       '@gnolang/tm2-rpc':
         specifier: ^1.0.0
         version: 1.0.0
@@ -857,8 +860,8 @@ packages:
   '@gerrit0/mini-shiki@3.23.0':
     resolution: {integrity: sha512-bEMORlG0cqdjVyCEuU0cDQbORWX+kYCeo0kV1lbxF5bt4r7SID2l9bqsxJEM0zndaxpOUT7riCyIVEuqq/Ynxg==}
 
-  '@gnolang/gno-types@1.0.8':
-    resolution: {integrity: sha512-iK3U47tQxH7KaSFKqwgR+dEPPRuh/U2DyKZJ8b5Jt8awv8ZPfn/NMEd2YLYgGbhm2mWZGhv7xhfbMg5kzuEltQ==}
+  '@gnolang/gno-types@1.1.0':
+    resolution: {integrity: sha512-lG+CW5wZXd+EZ29PHuOcN3T+EdGetkA7bJTSfVskOuW99GHHKiZH9rFinKgHWfqw99zKDM1hZ+6+IlruR4G8ug==}
     peerDependencies:
       '@bufbuild/protobuf': ^2.9.0
 
@@ -3489,7 +3492,7 @@ snapshots:
       '@shikijs/types': 3.23.0
       '@shikijs/vscode-textmate': 10.0.2
 
-  '@gnolang/gno-types@1.0.8(@bufbuild/protobuf@2.15.0)':
+  '@gnolang/gno-types@1.1.0(@bufbuild/protobuf@2.15.0)':
     dependencies:
       '@bufbuild/protobuf': 2.15.0
 
