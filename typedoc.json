@@ -2,6 +2,7 @@
   "entryPoints": [
     "packages/indexer-engine/src/index.ts",
     "packages/chain-cosmos/src/index.ts",
+    "packages/chain-gno/src/index.ts",
     "packages/basic-indexer-pg/src/index.ts",
     "packages/cosmos-modules/src/index.ts"
   ],

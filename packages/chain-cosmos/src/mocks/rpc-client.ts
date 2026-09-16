@@ -62,6 +62,9 @@ export interface MockRpcConfig {
   validatorCount?: number
 }
 
+/** Block time of the mock chain's genesis; block N is at MOCK_EPOCH_MS + N seconds */
+export const MOCK_EPOCH_MS = 1700000000000;
+
 /** Deterministic bech32 address from a small integer, for synthetic accounts and validators */
 export function syntheticAddress(prefix: string, seed: number): string {
   const bytes = new Uint8Array(20);
@@ -284,7 +287,8 @@ export class MockRpcClient {
             block: 11,
             app: 0,
           },
-          time: fromRfc3339WithNanoseconds(new Date().toISOString()),
+          // Deterministic: one second per block from a fixed epoch, so refetching a height agrees with itself
+          time: fromRfc3339WithNanoseconds(new Date(MOCK_EPOCH_MS + height * 1000).toISOString()),
           chainId: this.chainId,
           lastBlockId: null,
           lastCommitHash: new Uint8Array(),
@@ -313,7 +317,7 @@ export class MockRpcClient {
             {
               blockIdFlag: 2,
               validatorAddress: fromHex("D68EEC0D2E8248F1EC64CDB585EDB61ECA432BD8"),
-              timestamp: fromRfc3339WithNanoseconds(new Date().toISOString()),
+              timestamp: fromRfc3339WithNanoseconds(new Date(MOCK_EPOCH_MS + height * 1000).toISOString()),
               signature: fromBase64("Z6d2P35dI6qBzfPdyIZvmZi7Imo2FmQ5kNSnpVb2UvCj0aSjRCtS59BauJFB6FDHPluOUYoz0rJ4jiOnNXh9AA=="),
             },
           ],

@@ -2,6 +2,7 @@
 "@eclesia/indexer-engine": major
 "@eclesia/basic-pg-indexer": major
 "@eclesia/chain-cosmos": major
+"@eclesia/chain-gno": major
 "@eclesia/cosmos-modules-pg": major
 "@eclesia/core-modules-pg": major
 "create-eclesia-indexer": major
@@ -32,3 +33,10 @@ Breaking changes:
 - The misspelled `EcleciaIndexer` / `EcleciaIndexerConfig` aliases are removed.
 - When an adapter has no block subscription, or cannot subscribe with the configured endpoint,
   the engine switches to polling on its own and logs a warning.
+
+New in 4.0.0: `@eclesia/chain-gno`, a chain adapter for gno.land and other Tendermint2 chains
+(`gno()`), built on `@gnolang/tm2-rpc` and `@gnolang/gno-types`. It emits `block`,
+`begin_block`, one `tx` per transaction, one decoded event per message (`/bank.MsgSend`,
+`/vm.m_call`, `/vm.m_addpkg`, `/vm.m_run`) and `end_block`, imports genesis transactions as
+`gentx<@type>` events, and ships a mock Tendermint2 node. The engine's `Mocks` namespace gains
+`adapterContractCases()`, behavioural checks every chain adapter must pass.

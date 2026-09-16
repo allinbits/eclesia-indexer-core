@@ -23,6 +23,7 @@
     "packages/indexer-engine/**/*.ts": "pnpm --filter @eclesia/indexer-engine exec eslint --fix",
     "packages/basic-indexer-pg/**/*.ts": "pnpm --filter @eclesia/basic-pg-indexer exec eslint --fix",
     "packages/chain-cosmos/**/*.ts": "pnpm --filter @eclesia/chain-cosmos exec eslint --fix",
+    "packages/chain-gno/**/*.ts": "pnpm --filter @eclesia/chain-gno exec eslint --fix",
     "packages/cosmos-modules/**/*.ts": "pnpm --filter @eclesia/cosmos-modules-pg exec eslint --fix",
     "packages/create-eclesia-indexer/src/**/*.ts": "pnpm --filter create-eclesia-indexer exec eslint --fix"
   },
@@ -43,6 +44,7 @@
     "@changesets/cli": "^2.31.1",
     "@eclesia/basic-pg-indexer": "workspace:*",
     "@eclesia/chain-cosmos": "workspace:*",
+    "@eclesia/chain-gno": "workspace:*",
     "@eclesia/cosmos-modules-pg": "workspace:*",
     "@eclesia/indexer-engine": "workspace:*",
     "@types/node": "^24.13.3",
