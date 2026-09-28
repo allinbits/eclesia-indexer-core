@@ -27,6 +27,7 @@ import {
 import {
   MsgCancelUnbondingDelegation,
   MsgCreateValidator,
+  MsgEditValidator,
   MsgUndelegate,
 } from "cosmjs-types/cosmos/staking/v1beta1/tx.js";
 import {
@@ -1033,6 +1034,117 @@ describe("StakingModule", () => {
       });
 
       expect(update).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * Commission changes that do not come from a MsgEditValidator (AtomOne's v4 upgrade handler
+   * capped every rate at 5%) are only visible in the validator set.
+   */
+  describe("commission from the validator set", () => {
+    const withCommission = (rate: string, minSelfDelegation = "1") => Validator.fromPartial({
+      operatorAddress: "cosmosvaloper1v",
+      status: 3,
+      tokens: "10",
+      delegatorShares: "10000000000000000000",
+      minSelfDelegation,
+      commission: {
+        commissionRates: {
+          rate,
+          maxRate: "200000000000000000",
+          maxChangeRate: "10000000000000000",
+        },
+      },
+    });
+    const recorded = (commission: string, height: number | null = 100) => ({
+      rowCount: 1,
+      rows: [
+        {
+          commission,
+          min_self_delegation: "1",
+          height,
+        },
+      ],
+    });
+    const commissionLookups = () => mockQuery.mock.calls.filter(call => typeof call[0] === "string" && call[0].startsWith("SELECT * FROM validator_commissions"));
+    const commissionInserts = () => mockQuery.mock.calls.filter(call => call[0]?.name === "save-validator-commission-set").map(call => call[0].values);
+
+    beforeEach(async () => {
+      mockQuery.mockReset();
+      await stakingModule.init(mockPgIndexer as unknown as PgIndexer);
+      stakingModule.validatorAddressCache.set("cosmosvaloper1v", "cosmosvalcons1v");
+    });
+
+    it("records a rate changed outside a transaction", async () => {
+      mockQuery.mockImplementation(async (query: string) => typeof query === "string" && query.startsWith("SELECT * FROM validator_commissions") ? recorded("0.1") : undefined);
+
+      await stakingModule.checkAndSaveValidators([withCommission("50000000000000000")], 9550000);
+
+      expect(commissionInserts()).toEqual([["cosmosvaloper1v", "0.05", "1", 9550000]]);
+    });
+
+    it("writes nothing for an unchanged rate and reads the database only once", async () => {
+      mockQuery.mockImplementation(async (query: string) => typeof query === "string" && query.startsWith("SELECT * FROM validator_commissions") ? recorded("0.1") : undefined);
+
+      await stakingModule.checkAndSaveValidators([withCommission("100000000000000000")], 500);
+      await stakingModule.checkAndSaveValidators([withCommission("100000000000000000")], 501);
+
+      expect(commissionInserts()).toEqual([]);
+      expect(commissionLookups()).toHaveLength(1);
+    });
+
+    it("reads the database again when a block is retried", async () => {
+      mockQuery.mockImplementation(async (query: string) => {
+        if (typeof query === "string" && query.startsWith("SELECT * FROM validator_commissions")) return recorded("0.1");
+        // The retry also reloads the known validator set
+        if (typeof query === "string" && query.includes("FROM validator_status")) return {
+          rowCount: 0,
+          rows: [],
+        };
+        return undefined;
+      });
+      await stakingModule.checkAndSaveValidators([withCommission("50000000000000000")], 600);
+
+      // Block 600 failed later on and was rolled back: the database still has 0.1
+      mockQuery.mockClear();
+      await stakingModule.checkAndSaveValidators([withCommission("50000000000000000")], 600);
+
+      expect(commissionInserts()).toEqual([["cosmosvaloper1v", "0.05", "1", 600]]);
+    });
+
+    it("MsgEditValidator leaves the commission to begin_block when it already recorded this block", async () => {
+      const handler = mockOn.mock.calls.find((call: unknown[]) => call[0] === "/cosmos.staking.v1beta1.MsgEditValidator")?.[1];
+      expect(handler).toBeDefined();
+      mockQuery.mockImplementation(async (query: string | {
+        name: string
+      }) => {
+        if (typeof query === "string" && query.startsWith("SELECT * FROM validator_commissions")) return recorded("0.08", 700);
+        if (typeof query === "string" && query.startsWith("SELECT * FROM validator_descriptions")) return {
+          rowCount: 1,
+          rows: [
+            {
+              moniker: "v",
+            },
+          ],
+        };
+        return undefined;
+      });
+
+      const tx = MsgEditValidator.encode(MsgEditValidator.fromPartial({
+        validatorAddress: "cosmosvaloper1v",
+        commissionRate: "80000000000000000",
+        minSelfDelegation: "",
+      })).finish();
+      await handler!({
+        value: {
+          tx,
+          events: [],
+        },
+        height: 700,
+      });
+
+      expect(mockQuery.mock.calls.filter(call => call[0]?.name === "save-validator-commission-edit")).toEqual([]);
+      expect(mockQuery.mock.calls.filter(call => call[0]?.name === "save-validator-description")).toHaveLength(1);
     });
   });
 

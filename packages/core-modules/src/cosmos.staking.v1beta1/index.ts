@@ -333,6 +333,15 @@ export class StakingModule implements Types.IndexingModule {
   /** Height the known validator set was last taken at, to spot a block being processed again */
   private knownValidatorsHeight = 0;
 
+  /** Last recorded commission rate and min self delegation per operator, filled from the database on first use */
+  private commissionCache = new Map<string, {
+    commission: string
+    min_self_delegation: string
+  }>();
+
+  /** Height the commission cache was last updated at, to spot a block being processed again */
+  private commissionCacheHeight = 0;
+
   constructor(registry: [string, GeneratedType][]) {
     this.registry = registry;
     // Validate and cache chain prefix at initialization
@@ -462,6 +471,11 @@ export class StakingModule implements Types.IndexingModule {
       });
       endTimer?.();
 
+      if (event.height !== undefined && commission.height !== null && Number(commission.height) === event.height) {
+        // begin_block already recorded the validator's commission as of the end of this block,
+        // which includes this edit
+        return;
+      }
       endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-commission") ?? void 0;
       await db.query({
         name: "save-validator-commission-edit",
@@ -1354,6 +1368,11 @@ export class StakingModule implements Types.IndexingModule {
   ) {
     const db = this.pgIndexer.getInstance();
     const current = new Set<string>();
+    if (height <= this.commissionCacheHeight) {
+      // A failed block was rolled back and is being retried: the cache may hold rates from it
+      this.commissionCache.clear();
+    }
+    this.commissionCacheHeight = height;
     for (let i = 0; i < validators.length; i++) {
       const val = validators[i];
       current.add(val.operatorAddress);
@@ -1403,9 +1422,50 @@ export class StakingModule implements Types.IndexingModule {
             Math.pow(10, 18),
           ),
         });
+        await this.saveCommissionChange(val, height);
       }
     }
     await this.saveRemovedValidators(current, height);
+  }
+
+  /**
+   * Records the validator's commission when it differs from the last recorded one. The validator set
+   * is the state at the end of the block, so this catches every change, including those made
+   * without a MsgEditValidator (an upgrade handler capping rates, for example).
+   */
+  private async saveCommissionChange(val: Validator, height: number) {
+    const rate = fromLegacyDec(val.commission?.commissionRates?.rate);
+    if (rate === undefined) {
+      return;
+    }
+    const minSelfDelegation = val.minSelfDelegation;
+    let recorded = this.commissionCache.get(val.operatorAddress);
+    if (!recorded) {
+      try {
+        const row = await this.getValidatorCommission(val.operatorAddress);
+        recorded = {
+          commission: String(row.commission),
+          min_self_delegation: String(row.min_self_delegation),
+        };
+      }
+      catch (_e) {
+        // No commission recorded yet: the row below is the first one
+      }
+    }
+    if (!recorded || !new BigNumber(recorded.commission).eq(rate) || !new BigNumber(recorded.min_self_delegation).eq(minSelfDelegation)) {
+      const db = this.pgIndexer.getInstance();
+      const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-commission") ?? void 0;
+      await db.query({
+        name: "save-validator-commission-set",
+        text: "INSERT INTO validator_commissions(validator_address, commission, min_self_delegation, height) VALUES ($1,$2,$3,$4)",
+        values: [val.operatorAddress, rate, minSelfDelegation, height],
+      });
+      endTimer?.();
+    }
+    this.commissionCache.set(val.operatorAddress, {
+      commission: rate,
+      min_self_delegation: minSelfDelegation,
+    });
   }
 
   /**
