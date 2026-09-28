@@ -330,6 +330,9 @@ export class StakingModule implements Types.IndexingModule {
    */
   private knownValidators = new Set<string>();
 
+  /** Height the known validator set was last taken at, to spot a block being processed again */
+  private knownValidatorsHeight = 0;
+
   constructor(registry: [string, GeneratedType][]) {
     this.registry = registry;
     // Validate and cache chain prefix at initialization
@@ -358,6 +361,7 @@ export class StakingModule implements Types.IndexingModule {
     await this.pgIndexer.applyMigrations(this.name, loadMigrations(path.join(__dirname, "sql")), "staking_params");
     await this.cacheValidatorData();
     await this.cacheLatestValidatorStatuses();
+    await this.loadKnownValidators();
   }
 
   init(pgIndexer: PgIndexer): void {
@@ -1332,10 +1336,6 @@ export class StakingModule implements Types.IndexingModule {
       for (let i = 0; i < res.rowCount; i++) {
         const vp = await this.getLatestValidatorVotingPower(res.rows[i].validator_address);
         const row = res.rows[i];
-        if (row.status == VALIDATOR_REMOVED_STATUS) {
-          continue;
-        }
-        this.knownValidators.add(row.validator_address);
         this.validatorCache.set(row.consensus_address, {
           status: row.status,
           jailed: row.jailed,
@@ -1417,6 +1417,11 @@ export class StakingModule implements Types.IndexingModule {
       // An empty set is a failed or truncated read, never every validator being removed at once
       return;
     }
+    if (height <= this.knownValidatorsHeight) {
+      // This block is being retried after a failure rolled it back. The in-memory set already
+      // moved past it, so take it from the (rolled back) database again or the removal is lost.
+      await this.loadKnownValidators();
+    }
     const db = this.pgIndexer.getInstance();
     for (const operator of this.knownValidators) {
       if (current.has(operator)) {
@@ -1438,6 +1443,18 @@ export class StakingModule implements Types.IndexingModule {
       this.indexer.log.info("Validator " + operator + " was removed from state at height " + height);
     }
     this.knownValidators = current;
+    this.knownValidatorsHeight = height;
+  }
+
+  /** Validators whose latest recorded status is not removed, i.e. still in the chain's state as far as the database knows */
+  async loadKnownValidators() {
+    const db = this.pgIndexer.getInstance();
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-known-validators") ?? void 0;
+    const res = await db.query(
+      "SELECT validator_address FROM (SELECT DISTINCT ON (validator_address) validator_address, status FROM validator_status ORDER BY validator_address, height DESC NULLS LAST) latest WHERE status<>$1", [VALIDATOR_REMOVED_STATUS],
+    );
+    endTimer?.();
+    this.knownValidators = new Set(res.rows.map(row => row.validator_address as string));
   }
 
   async savePool(pool: Pool, height?: number) {

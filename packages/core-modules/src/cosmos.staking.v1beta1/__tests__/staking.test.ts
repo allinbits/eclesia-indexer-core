@@ -769,42 +769,59 @@ describe("StakingModule", () => {
       expect(mockQuery).not.toHaveBeenCalled();
     });
 
-    it("does not report validators already stored as removed after a restart", async () => {
-      mockQuery
-        .mockResolvedValueOnce({
-          rowCount: 2,
-          rows: [
-            {
-              validator_address: "cosmosvaloper1a",
-              consensus_address: "cosmosvalcons1a",
-              jailed: false,
-              status: "BOND_STATUS_BONDED",
-            },
-            {
-              validator_address: "cosmosvaloper1gone",
-              consensus_address: "cosmosvalcons1gone",
-              jailed: false,
-              status: VALIDATOR_REMOVED_STATUS,
-            },
-          ],
-        })
-        .mockResolvedValue({
-          rowCount: 1,
-          rows: [
-            {
-              voting_power: "10",
-              delegator_shares: "10",
-            },
-          ],
-        });
-      await stakingModule.cacheLatestValidatorStatuses();
+    it("after a restart, takes the known set from the latest statuses that are not removed", async () => {
       stakingModule.validatorAddressCache.set("cosmosvaloper1a", "cosmosvalcons1a");
+      mockQuery.mockResolvedValueOnce({
+        rowCount: 2,
+        rows: [
+          {
+            validator_address: "cosmosvaloper1a",
+          },
+          {
+            validator_address: "cosmosvaloper1b",
+          },
+        ],
+      });
+      await stakingModule.loadKnownValidators();
+      expect(mockQuery.mock.calls[0][0]).toContain("WHERE status<>$1");
+      expect(mockQuery.mock.calls[0][1]).toEqual([VALIDATOR_REMOVED_STATUS]);
       mockQuery.mockReset();
       mockQuery.mockResolvedValue(undefined);
 
       await stakingModule.checkAndSaveValidators([validator("cosmosvaloper1a")], 900);
 
-      expect(mockQuery.mock.calls.filter(call => call[0]?.values?.[1] === VALIDATOR_REMOVED_STATUS)).toEqual([]);
+      const removed = mockQuery.mock.calls.filter(call => call[0]?.values?.[1] === VALIDATOR_REMOVED_STATUS);
+      expect(removed.map(call => call[0].values[0])).toEqual(["cosmosvaloper1b"]);
+    });
+
+    it("records the removal again when the block is retried after a rollback", async () => {
+      stakingModule.validatorAddressCache.set("cosmosvaloper1a", "cosmosvalcons1a");
+      stakingModule.validatorAddressCache.set("cosmosvaloper1b", "cosmosvalcons1b");
+      mockQuery.mockResolvedValue(undefined);
+      await stakingModule.checkAndSaveValidators([validator("cosmosvaloper1a"), validator("cosmosvaloper1b")], 500);
+      await stakingModule.checkAndSaveValidators([validator("cosmosvaloper1a")], 501);
+
+      // Block 501 failed later on and was rolled back: the database still has 1b as a live validator
+      mockQuery.mockReset();
+      mockQuery.mockImplementation(async (query: string | {
+        text: string
+      }) => typeof query === "string" && query.includes("FROM validator_status")
+        ? {
+          rowCount: 2,
+          rows: [
+            {
+              validator_address: "cosmosvaloper1a",
+            },
+            {
+              validator_address: "cosmosvaloper1b",
+            },
+          ],
+        }
+        : undefined);
+      await stakingModule.checkAndSaveValidators([validator("cosmosvaloper1a")], 501);
+
+      const removed = mockQuery.mock.calls.filter(call => call[0]?.values?.[1] === VALIDATOR_REMOVED_STATUS);
+      expect(removed.map(call => call[0].values)).toEqual([["cosmosvaloper1b", VALIDATOR_REMOVED_STATUS, false, 501]]);
     });
   });
 
