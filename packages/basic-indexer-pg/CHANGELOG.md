@@ -1,5 +1,12 @@
 # @eclesia/basic-pg-indexer
 
+## 2.16.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @eclesia/indexer-engine@2.16.3
+
 ## 2.16.2
 
 ### Patch Changes
