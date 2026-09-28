@@ -266,6 +266,26 @@ const SAVE_VALIDATOR_INFO_SQL = "INSERT INTO validator_infos(operator_address, s
 const SAVE_VALIDATOR_SQL = "INSERT INTO validators(consensus_address, consensus_pubkey, operator_address, height) VALUES ($1,$2,$3,$4) ON CONFLICT (consensus_address) DO UPDATE SET consensus_pubkey=EXCLUDED.consensus_pubkey, operator_address=EXCLUDED.operator_address, is_active=true, height=EXCLUDED.height";
 const DEACTIVATE_OTHER_KEYS_SQL = "UPDATE validators SET is_active=false WHERE operator_address=$1 AND is_active AND consensus_address<>$2";
 
+/** Status recorded for a validator the chain deleted from state (fully unbonded, no delegator shares left) */
+export const VALIDATOR_REMOVED_STATUS = "BOND_STATUS_REMOVED";
+
+/** Block events as both CometBFT versions deliver them; only type and attributes are read */
+type BlockEvents = ReadonlyArray<{
+  type: string
+  attributes: ReadonlyArray<{
+    key: Uint8Array | string
+    value: Uint8Array | string
+  }>
+}>;
+
+/*
+ * Every staked balance write after genesis goes through this upsert. Several staking messages for
+ * the same delegator/validator pair in one block each build on the row the previous one wrote at
+ * that height and replace it, so a pair has exactly one row per height and the "latest row" lookup
+ * is deterministic.
+ */
+const SAVE_STAKED_BALANCE_SQL = "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4,$5) ON CONFLICT ON CONSTRAINT unique_staked_balance_height DO UPDATE SET amount=EXCLUDED.amount, shares=EXCLUDED.shares";
+
 /**
  * Cosmos SDK Staking module indexer that tracks validators, delegations, and staking operations
  * Handles validator creation, delegation changes, redelegations, and unbonding
@@ -298,6 +318,21 @@ export class StakingModule implements Types.IndexingModule {
   /** Validated chain prefix for address generation */
   private chainPrefix: string;
 
+  /** Slashes seen in the current block, applied at its end_block */
+  private pendingSlashes: {
+    validator: string
+    power: string
+  }[] = [];
+
+  /**
+   * Operator addresses in the chain's validator set as of the last processed block. A validator
+   * missing from the next set has been removed from state by the chain.
+   */
+  private knownValidators = new Set<string>();
+
+  /** Height the known validator set was last taken at, to spot a block being processed again */
+  private knownValidatorsHeight = 0;
+
   constructor(registry: [string, GeneratedType][]) {
     this.registry = registry;
     // Validate and cache chain prefix at initialization
@@ -326,6 +361,7 @@ export class StakingModule implements Types.IndexingModule {
     await this.pgIndexer.applyMigrations(this.name, loadMigrations(path.join(__dirname, "sql")), "staking_params");
     await this.cacheValidatorData();
     await this.cacheLatestValidatorStatuses();
+    await this.loadKnownValidators();
   }
 
   init(pgIndexer: PgIndexer): void {
@@ -487,8 +523,8 @@ export class StakingModule implements Types.IndexingModule {
           endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
           await db.query({
             name: "save-staked-balance",
-            text: "INSERT INTO staked_balances(delegator,amount,validator,shares, height) VALUES($1,$2::COIN,$3,$4,$5)",
-            values: [msg.delegatorAddress, "(\"" + msg.value?.denom + "\",\"" + msg.value?.amount + "\")", consensus_address, msg.value?.amount, event.height],
+            text: SAVE_STAKED_BALANCE_SQL,
+            values: [msg.delegatorAddress, consensus_address, "(\"" + msg.value?.denom + "\",\"" + msg.value?.amount + "\")", msg.value?.amount, event.height],
           });
           endTimer?.();
         }
@@ -627,6 +663,8 @@ export class StakingModule implements Types.IndexingModule {
     });
 
     this.indexer.on("begin_block", async (event) => {
+      // Anything left over belongs to a block that failed before its end_block and is being retried
+      this.pendingSlashes = [];
       if (event.height && event.value.validators) {
         await this.checkAndSaveValidators(event.value.validators, event.height);
       }
@@ -634,23 +672,21 @@ export class StakingModule implements Types.IndexingModule {
       if (event.height == 1 && event.value.validators) {
         await this.fetchAutoStake(event.value.validators);
       }
-      const slashEvents = event.value.events.filter(x => x.type == "slash");
-      if (slashEvents.length > 0) {
-        for (let i = 0; i < slashEvents.length; i++) {
-          let val: string = "";
-          let power: string = "";
-          for (let j = 0; j < slashEvents[i].attributes.length; j++) {
-            const key = Utils.decodeAttr(slashEvents[i].attributes[j].key);
-            const value = Utils.decodeAttr(slashEvents[i].attributes[j].value);
-            if (key == "address") {
-              val = value ?? "";
-            }
-            if (key == "power") {
-              power = value ?? "";
-            }
-          }
-          await this.updateSlashedValidator(val, power, BigInt(event.height ?? 1));
-        }
+      this.collectSlashes(event.value.events);
+    });
+
+    /*
+     * Slashed delegations are re-read from the chain at the end of the block, not when the slash
+     * event is seen. A query at this height returns the state after the whole block, including its
+     * transactions, so rows written at begin_block would already contain this block's delegations
+     * and the transaction handlers would then add them a second time.
+     */
+    this.indexer.on("end_block", async (event) => {
+      this.collectSlashes(event.value);
+      const slashes = this.pendingSlashes;
+      this.pendingSlashes = [];
+      for (const slash of slashes) {
+        await this.updateSlashedValidator(slash.validator, slash.power, BigInt(event.height ?? 1));
       }
     });
 
@@ -858,7 +894,7 @@ export class StakingModule implements Types.IndexingModule {
 
       endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
       await db.query(
-        "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4,$5)", [delegator, validatorSrc, "(\"" + amount.denom + "\",\"" + newAmount + "\")", newShares.toPrecision(), height],
+        SAVE_STAKED_BALANCE_SQL, [delegator, validatorSrc, "(\"" + amount.denom + "\",\"" + newAmount + "\")", newShares.toPrecision(), height],
       );
       endTimer?.();
     }
@@ -959,11 +995,11 @@ export class StakingModule implements Types.IndexingModule {
       endTimer = this.indexer.prometheus?.timeDatabaseQuery("rotate-save-staked-balance") ?? void 0;
       // Zero the delegation under the old consensus address.
       await db.query(
-        "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4,$5)", [row.delegator, oldConsensus, "(\"" + denom + "\",\"0\")", "0", height],
+        SAVE_STAKED_BALANCE_SQL, [row.delegator, oldConsensus, "(\"" + denom + "\",\"0\")", "0", height],
       );
       // Carry it over under the new consensus address.
       await db.query(
-        "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4,$5)", [row.delegator, newConsensus, "(\"" + denom + "\",\"" + row.coin.amount + "\")", shares.toPrecision(), height],
+        SAVE_STAKED_BALANCE_SQL, [row.delegator, newConsensus, "(\"" + denom + "\",\"" + row.coin.amount + "\")", shares.toPrecision(), height],
       );
       endTimer?.();
     }
@@ -998,6 +1034,31 @@ export class StakingModule implements Types.IndexingModule {
     }
     else {
       throw new Error("Invalid block height");
+    }
+  }
+
+  /** Queues the slash events of a block for its end_block */
+  private collectSlashes(events: BlockEvents) {
+    for (const event of events) {
+      if (event.type != "slash") {
+        continue;
+      }
+      let validator = "";
+      let power = "";
+      for (const attribute of event.attributes) {
+        const key = Utils.decodeAttr(attribute.key);
+        const value = Utils.decodeAttr(attribute.value);
+        if (key == "address") {
+          validator = value ?? "";
+        }
+        if (key == "power") {
+          power = value ?? "";
+        }
+      }
+      this.pendingSlashes.push({
+        validator,
+        power,
+      });
     }
   }
 
@@ -1065,7 +1126,7 @@ export class StakingModule implements Types.IndexingModule {
 
         const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
         await db.query(
-          "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4,$5)", [
+          SAVE_STAKED_BALANCE_SQL, [
             delegator,
             consensus_address,
             "(\""
@@ -1127,7 +1188,7 @@ export class StakingModule implements Types.IndexingModule {
               );
               const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
               await db.query(
-                "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4,$5)", [
+                SAVE_STAKED_BALANCE_SQL, [
                   delegation.delegation.delegatorAddress,
                   consensus_address,
                   "(\""
@@ -1191,7 +1252,7 @@ export class StakingModule implements Types.IndexingModule {
     if (res.rowCount == 0) {
       endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
       await db.query(
-        "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4, $5)", [delegator, validator, "(\"" + amount.denom + "\",\"" + amount.amount + "\")", delegator_shares.toPrecision(), height],
+        SAVE_STAKED_BALANCE_SQL, [delegator, validator, "(\"" + amount.denom + "\",\"" + amount.amount + "\")", delegator_shares.toPrecision(), height],
       );
       endTimer?.();
     }
@@ -1202,7 +1263,7 @@ export class StakingModule implements Types.IndexingModule {
       const shares = new BigNumber(res.rows[0].shares).plus(delegator_shares);
       endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
       await db.query(
-        "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4, $5)", [delegator, validator, "(\"" + amount.denom + "\",\"" + newAmount + "\")", shares.toPrecision(), height],
+        SAVE_STAKED_BALANCE_SQL, [delegator, validator, "(\"" + amount.denom + "\",\"" + newAmount + "\")", shares.toPrecision(), height],
       );
       endTimer?.();
     }
@@ -1247,7 +1308,7 @@ export class StakingModule implements Types.IndexingModule {
 
     endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
     await db.query(
-      "INSERT INTO staked_balances(delegator, validator, amount, shares, height) VALUES($1,$2,$3::COIN,$4, $5)", [delegator, validator, "(\"" + amount.denom + "\",\"" + newAmount.toString() + "\")", newShares.toPrecision(), height],
+      SAVE_STAKED_BALANCE_SQL, [delegator, validator, "(\"" + amount.denom + "\",\"" + newAmount.toString() + "\")", newShares.toPrecision(), height],
     );
     endTimer?.();
   }
@@ -1290,8 +1351,10 @@ export class StakingModule implements Types.IndexingModule {
     height: number,
   ) {
     const db = this.pgIndexer.getInstance();
+    const current = new Set<string>();
     for (let i = 0; i < validators.length; i++) {
       const val = validators[i];
+      current.add(val.operatorAddress);
       let consensus_address: string;
       try {
         consensus_address = await this.getConsensusAddress(
@@ -1340,6 +1403,58 @@ export class StakingModule implements Types.IndexingModule {
         });
       }
     }
+    await this.saveRemovedValidators(current, height);
+  }
+
+  /**
+   * The chain deletes a validator once it is unbonded and has no delegator shares left, so it
+   * simply drops out of the validator set. Record that as a status row; otherwise the validator
+   * keeps its last status (usually unbonded) forever. The validator set is the complete one
+   * (every bond status), so absence means removal.
+   */
+  private async saveRemovedValidators(current: Set<string>, height: number) {
+    if (current.size == 0) {
+      // An empty set is a failed or truncated read, never every validator being removed at once
+      return;
+    }
+    if (height <= this.knownValidatorsHeight) {
+      // This block is being retried after a failure rolled it back. The in-memory set already
+      // moved past it, so take it from the (rolled back) database again or the removal is lost.
+      await this.loadKnownValidators();
+    }
+    const db = this.pgIndexer.getInstance();
+    for (const operator of this.knownValidators) {
+      if (current.has(operator)) {
+        continue;
+      }
+      const consensus_address = this.validatorAddressCache.get(operator);
+      const cache = consensus_address ? this.validatorCache.get(consensus_address) : undefined;
+      const endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-validator-status") ?? void 0;
+      await db.query({
+        name: "save-validator-status",
+        text: "INSERT INTO validator_status(validator_address, status, jailed, height) VALUES($1,$2,$3,$4)",
+        values: [operator, VALIDATOR_REMOVED_STATUS, cache?.jailed ?? false, height],
+      });
+      endTimer?.();
+      // A later MsgCreateValidator by the same operator then records a fresh status
+      if (consensus_address) {
+        this.validatorCache.delete(consensus_address);
+      }
+      this.indexer.log.info("Validator " + operator + " was removed from state at height " + height);
+    }
+    this.knownValidators = current;
+    this.knownValidatorsHeight = height;
+  }
+
+  /** Validators whose latest recorded status is not removed, i.e. still in the chain's state as far as the database knows */
+  async loadKnownValidators() {
+    const db = this.pgIndexer.getInstance();
+    const endTimer = this.indexer.prometheus?.timeDatabaseQuery("get-known-validators") ?? void 0;
+    const res = await db.query(
+      "SELECT validator_address FROM (SELECT DISTINCT ON (validator_address) validator_address, status FROM validator_status ORDER BY validator_address, height DESC NULLS LAST) latest WHERE status<>$1", [VALIDATOR_REMOVED_STATUS],
+    );
+    endTimer?.();
+    this.knownValidators = new Set(res.rows.map(row => row.validator_address as string));
   }
 
   async savePool(pool: Pool, height?: number) {

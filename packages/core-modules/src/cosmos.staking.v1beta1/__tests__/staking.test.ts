@@ -37,7 +37,7 @@ import {
 } from "vitest";
 
 import {
-  consensusKeyHash, editedField, fromLegacyDec, StakingModule, unbondingSeconds,
+  consensusKeyHash, editedField, fromLegacyDec, StakingModule, unbondingSeconds, VALIDATOR_REMOVED_STATUS,
 } from "../index";
 
 /**
@@ -734,6 +734,278 @@ describe("StakingModule", () => {
           delegatorShares: "10000000000000000000",
         }),
       ], 500)).rejects.toThrow("value out of range");
+    });
+
+    const validator = (operatorAddress: string) => Validator.fromPartial({
+      operatorAddress,
+      status: 3,
+      tokens: "10",
+      delegatorShares: "10000000000000000000",
+    });
+
+    it("records a validator that drops out of the set as removed, once", async () => {
+      stakingModule.validatorAddressCache.set("cosmosvaloper1a", "cosmosvalcons1a");
+      stakingModule.validatorAddressCache.set("cosmosvaloper1b", "cosmosvalcons1b");
+      mockQuery.mockResolvedValue(undefined);
+
+      await stakingModule.checkAndSaveValidators([validator("cosmosvaloper1a"), validator("cosmosvaloper1b")], 500);
+      mockQuery.mockClear();
+      await stakingModule.checkAndSaveValidators([validator("cosmosvaloper1a")], 501);
+      await stakingModule.checkAndSaveValidators([validator("cosmosvaloper1a")], 502);
+
+      const statuses = mockQuery.mock.calls.filter(call => call[0]?.name === "save-validator-status");
+      expect(statuses.map(call => call[0].values)).toEqual([["cosmosvaloper1b", VALIDATOR_REMOVED_STATUS, false, 501]]);
+      expect(stakingModule.validatorCache.get("cosmosvalcons1b")).toBeUndefined();
+    });
+
+    it("does not treat an empty validator set as every validator being removed", async () => {
+      stakingModule.validatorAddressCache.set("cosmosvaloper1a", "cosmosvalcons1a");
+      mockQuery.mockResolvedValue(undefined);
+
+      await stakingModule.checkAndSaveValidators([validator("cosmosvaloper1a")], 500);
+      mockQuery.mockClear();
+      await stakingModule.checkAndSaveValidators([], 501);
+
+      expect(mockQuery).not.toHaveBeenCalled();
+    });
+
+    it("after a restart, takes the known set from the latest statuses that are not removed", async () => {
+      stakingModule.validatorAddressCache.set("cosmosvaloper1a", "cosmosvalcons1a");
+      mockQuery.mockResolvedValueOnce({
+        rowCount: 2,
+        rows: [
+          {
+            validator_address: "cosmosvaloper1a",
+          },
+          {
+            validator_address: "cosmosvaloper1b",
+          },
+        ],
+      });
+      await stakingModule.loadKnownValidators();
+      expect(mockQuery.mock.calls[0][0]).toContain("WHERE status<>$1");
+      expect(mockQuery.mock.calls[0][1]).toEqual([VALIDATOR_REMOVED_STATUS]);
+      mockQuery.mockReset();
+      mockQuery.mockResolvedValue(undefined);
+
+      await stakingModule.checkAndSaveValidators([validator("cosmosvaloper1a")], 900);
+
+      const removed = mockQuery.mock.calls.filter(call => call[0]?.values?.[1] === VALIDATOR_REMOVED_STATUS);
+      expect(removed.map(call => call[0].values[0])).toEqual(["cosmosvaloper1b"]);
+    });
+
+    it("records the removal again when the block is retried after a rollback", async () => {
+      stakingModule.validatorAddressCache.set("cosmosvaloper1a", "cosmosvalcons1a");
+      stakingModule.validatorAddressCache.set("cosmosvaloper1b", "cosmosvalcons1b");
+      mockQuery.mockResolvedValue(undefined);
+      await stakingModule.checkAndSaveValidators([validator("cosmosvaloper1a"), validator("cosmosvaloper1b")], 500);
+      await stakingModule.checkAndSaveValidators([validator("cosmosvaloper1a")], 501);
+
+      // Block 501 failed later on and was rolled back: the database still has 1b as a live validator
+      mockQuery.mockReset();
+      mockQuery.mockImplementation(async (query: string | {
+        text: string
+      }) => typeof query === "string" && query.includes("FROM validator_status")
+        ? {
+          rowCount: 2,
+          rows: [
+            {
+              validator_address: "cosmosvaloper1a",
+            },
+            {
+              validator_address: "cosmosvaloper1b",
+            },
+          ],
+        }
+        : undefined);
+      await stakingModule.checkAndSaveValidators([validator("cosmosvaloper1a")], 501);
+
+      const removed = mockQuery.mock.calls.filter(call => call[0]?.values?.[1] === VALIDATOR_REMOVED_STATUS);
+      expect(removed.map(call => call[0].values)).toEqual([["cosmosvaloper1b", VALIDATOR_REMOVED_STATUS, false, 501]]);
+    });
+  });
+
+  /**
+   * Several staking messages for the same pair in one block. Each write must build on the row the
+   * previous message wrote at that height and replace it; with plain inserts the pair ended up with
+   * several rows at one height and the next "latest row" read picked any of them.
+   */
+  describe("several staking messages for one pair in a block", () => {
+    type Row = {
+      delegator: string
+      validator: string
+      denom: string
+      amount: string
+      shares: string
+      height: number
+    };
+    let rows: Row[];
+
+    // Enough of the staked_balances table for delegate/undelegate/redelegate
+    const fakeQuery = async (text: string, values: unknown[]) => {
+      if (text.startsWith("SELECT to_json(amount)")) {
+        const [delegator, validator] = values as string[];
+        const latest = rows
+          .filter(row => row.delegator == delegator && row.validator == validator)
+          .sort((a, b) => b.height - a.height)[0];
+        return latest
+          ? {
+            rowCount: 1,
+            rows: [
+              {
+                to_json: {
+                  denom: latest.denom,
+                  amount: latest.amount,
+                },
+                shares: latest.shares,
+              },
+            ],
+          }
+          : {
+            rowCount: 0,
+            rows: [],
+          };
+      }
+      if (text.startsWith("INSERT INTO staked_balances")) {
+        expect(text).toContain("ON CONFLICT ON CONSTRAINT unique_staked_balance_height DO UPDATE");
+        const [delegator, validator, coin, shares, height] = values as [string, string, string, string, number];
+        const [, denom, amount] = /^\("(.*)","(.*)"\)$/.exec(coin)!;
+        rows = rows.filter(row => !(row.delegator == delegator && row.validator == validator && row.height == height));
+        rows.push({
+          delegator,
+          validator,
+          denom,
+          amount,
+          shares,
+          height,
+        });
+        return undefined;
+      }
+      if (text.startsWith("SELECT * FROM validator_voting_powers")) {
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              voting_power: "1000",
+              delegator_shares: "1000",
+            },
+          ],
+        };
+      }
+      throw new Error("unexpected query: " + text);
+    };
+
+    beforeEach(async () => {
+      rows = [];
+      mockQuery.mockReset();
+      mockQuery.mockImplementation(fakeQuery);
+      await stakingModule.init(mockPgIndexer as unknown as PgIndexer);
+    });
+
+    const coin = (amount: string) => ({
+      denom: "uatone",
+      amount,
+    });
+    const latest = (validator: string) => rows
+      .filter(row => row.validator == validator)
+      .sort((a, b) => b.height - a.height)[0];
+
+    it("delegations in the same block add up", async () => {
+      await stakingModule.delegate("atone1del", "atonevalcons1v", coin("1000"), 100);
+      await stakingModule.delegate("atone1del", "atonevalcons1v", coin("1742"), 200);
+      await stakingModule.delegate("atone1del", "atonevalcons1v", coin("339873"), 200);
+      await stakingModule.delegate("atone1del", "atonevalcons1v", coin("1113"), 300);
+
+      expect(rows.filter(row => row.height == 200)).toHaveLength(1);
+      expect(latest("atonevalcons1v").amount).toBe("343728");
+    });
+
+    it("redelegating a whole delegation away in several messages leaves nothing behind", async () => {
+      await stakingModule.delegate("atone1del", "atonevalcons1src", coin("278000"), 100);
+      for (const amount of ["16975", "106315", "106315", "47252", "1143"]) {
+        await stakingModule.redelegate("atone1del", "atonevalcons1src", "atonevalcons1dst", coin(amount), 200);
+      }
+
+      expect(latest("atonevalcons1src").amount).toBe("0");
+      expect(latest("atonevalcons1dst").amount).toBe("278000");
+      expect(rows.filter(row => row.height == 200)).toHaveLength(2);
+    });
+
+    it("an undelegation after a delegation in the same block starts from the delegated total", async () => {
+      await stakingModule.delegate("atone1del", "atonevalcons1v", coin("500"), 100);
+      await stakingModule.delegate("atone1del", "atonevalcons1v", coin("250"), 200);
+      await stakingModule.undelegate("atone1del", "atonevalcons1v", coin("750"), 200);
+
+      expect(latest("atonevalcons1v").amount).toBe("0");
+    });
+  });
+
+  describe("slashes", () => {
+    const handlerFor = (name: string) => mockOn.mock.calls.find(
+      (call: unknown[]) => call[0] === name,
+    )?.[1];
+    const slashEvent = {
+      type: "slash",
+      attributes: [
+        {
+          key: "address",
+          value: "cosmosvalcons1v",
+        },
+        {
+          key: "power",
+          value: "42",
+        },
+      ],
+    };
+
+    beforeEach(async () => {
+      mockQuery.mockReset();
+      await stakingModule.init(mockPgIndexer as unknown as PgIndexer);
+    });
+
+    it("re-reads slashed delegations at end_block, after the block's transactions", async () => {
+      const update = vi.spyOn(stakingModule, "updateSlashedValidator").mockResolvedValue(undefined);
+
+      await handlerFor("begin_block")!({
+        value: {
+          events: [slashEvent],
+          validators: undefined,
+        },
+        height: 700,
+      });
+      expect(update).not.toHaveBeenCalled();
+
+      await handlerFor("end_block")!({
+        value: [],
+        height: 700,
+      });
+      expect(update).toHaveBeenCalledExactlyOnceWith("cosmosvalcons1v", "42", 700n);
+    });
+
+    it("drops the queue of a block that failed before its end_block", async () => {
+      const update = vi.spyOn(stakingModule, "updateSlashedValidator").mockResolvedValue(undefined);
+
+      await handlerFor("begin_block")!({
+        value: {
+          events: [slashEvent],
+          validators: undefined,
+        },
+        height: 700,
+      });
+      // Block 700 is retried: begin_block runs again with the same slash
+      await handlerFor("begin_block")!({
+        value: {
+          events: [slashEvent],
+          validators: undefined,
+        },
+        height: 700,
+      });
+      await handlerFor("end_block")!({
+        value: [],
+        height: 700,
+      });
+
+      expect(update).toHaveBeenCalledTimes(1);
     });
   });
 
