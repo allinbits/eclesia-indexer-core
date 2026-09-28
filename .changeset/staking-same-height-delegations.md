@@ -7,3 +7,5 @@ Staking: delegations no longer drift when a delegator changes the same delegatio
 Slashed delegations are now re-read from the chain at `end_block` instead of `begin_block`: the query returns the state after the whole block, so rows written at begin_block already included that block's delegations and the transaction handlers then added them again.
 
 Validators the chain removes from state (unbonded with no delegator shares left) now get a `BOND_STATUS_REMOVED` row in `validator_status` at the height they leave the validator set, instead of keeping their last status forever.
+
+Redelegating a whole delegation away from a slashed validator no longer leaves a small negative amount on the source: it is floored at zero like an undelegation.
