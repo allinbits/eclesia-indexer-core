@@ -288,6 +288,33 @@ describe("StakingModule", () => {
       expect(mockQuery.mock.calls[0][0]).toMatch(LATEST_ROW);
       expect(mockQuery.mock.calls[0][1]).toEqual(["atone1del", "atonevalcons1src"]);
     });
+
+    it("redelegate floors the source at zero when the chain moves more than the running total", async () => {
+      vi.spyOn(stakingModule, "delegate").mockResolvedValue(undefined);
+      vi.spyOn(stakingModule, "tokensToSharesAtHeight").mockResolvedValue(new BigNumber(1004));
+      mockQuery
+        .mockResolvedValueOnce({
+          rowCount: 1,
+          rows: [
+            {
+              to_json: {
+                denom: "uatom",
+                amount: "1000",
+              },
+              shares: "1003",
+            },
+          ],
+        })
+        .mockResolvedValueOnce(undefined);
+
+      // Slashed validator: the whole delegation is worth 1004 on chain, 4 more than the running total
+      await stakingModule.redelegate("atone1del", "atonevalcons1src", "atonevalcons1dst", {
+        denom: "uatom",
+        amount: "1004",
+      }, 600);
+
+      expect(mockQuery.mock.calls[1][1]).toEqual(["atone1del", "atonevalcons1src", "(\"uatom\",\"0\")", "0", 600]);
+    });
   });
 
   describe("cacheLatestValidatorStatuses", () => {

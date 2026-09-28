@@ -887,10 +887,12 @@ export class StakingModule implements Types.IndexingModule {
       const shares = await this.tokensToSharesAtHeight(
         BigInt(amount.amount), validatorSrc, height,
       );
-      const newAmount = (
-        BigInt(res.rows[0].to_json.amount) - BigInt(amount.amount)
-      ).toString();
-      const newShares = BigNumber(res.rows[0].shares).minus(shares);
+      // Floored at zero like undelegate(): on a slashed validator the chain values the shares a
+      // few base units above the running total, so moving the whole delegation went negative
+      const current = BigInt(res.rows[0].to_json.amount);
+      const removed = BigInt(amount.amount);
+      const newAmount = (current > removed ? current - removed : 0n).toString();
+      const newShares = BigNumber.max(BigNumber(res.rows[0].shares).minus(shares), 0);
 
       endTimer = this.indexer.prometheus?.timeDatabaseQuery("save-staked-balance") ?? void 0;
       await db.query(
