@@ -1,5 +1,15 @@
 # @eclesia/core-modules-pg
 
+## 2.16.5
+
+### Patch Changes
+
+- [#46](https://github.com/allinbits/eclesia-indexer-core/pull/46) [`5dd94ba`](https://github.com/allinbits/eclesia-indexer-core/commit/5dd94ba6de3d9904aa8b73134abb44f6f35c390b) Thanks [@clockworkgr](https://github.com/clockworkgr)! - Staking: validator commission changes are now recorded from the validator set the indexer already fetches every block, not only from `MsgEditValidator`. Changes made without a transaction were missed before: AtomOne's v4 upgrade handler capped every commission rate at 5% at block 9550000, and the database kept the old rate (7–18%) for 59 validators, which later "no change" edits then copied forward. A `MsgEditValidator` no longer writes a second row when begin_block has already recorded the block's commission. On an existing database, a validator whose recorded rate is stale gets a corrected row at the first block processed after upgrading.
+
+- Updated dependencies []:
+  - @eclesia/indexer-engine@2.16.5
+  - @eclesia/basic-pg-indexer@2.16.5
+
 ## 2.16.4
 
 ### Patch Changes
