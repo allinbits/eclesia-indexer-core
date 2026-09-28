@@ -1,5 +1,15 @@
 # @eclesia/core-modules-pg
 
+## 2.16.4
+
+### Patch Changes
+
+- [#44](https://github.com/allinbits/eclesia-indexer-core/pull/44) [`62ec314`](https://github.com/allinbits/eclesia-indexer-core/commit/62ec314fb180841e5601603a9260a558538870cd) Thanks [@clockworkgr](https://github.com/clockworkgr)! - Staking: redelegating a whole delegation away from a slashed validator no longer leaves a small negative amount on the source. On a slashed validator the chain values a delegation's shares a few base units above the module's running total, so the source went to -1 to -9; it is now floored at zero, as `undelegate()` already was. On AtomOne mainnet this accounted for 33 negative delegations, all 0 on chain.
+
+- Updated dependencies []:
+  - @eclesia/indexer-engine@2.16.4
+  - @eclesia/basic-pg-indexer@2.16.4
+
 ## 2.16.3
 
 ### Patch Changes
